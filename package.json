@@ -1,0 +1,27 @@
+{
+  "name": "vietjet-ptfs-bot",
+  "version": "1.0.0",
+  "description": "VietJet Air PTFS Discord Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@discordjs/rest": "^2.3.0",
+    "@discordjs/voice": "^0.19.2",
+    "@distube/yt-dlp": "^2.0.1",
+    "discord-api-types": "^0.37.97",
+    "discord.js": "^14.15.3",
+    "distube": "^5.2.3",
+    "dotenv": "^16.4.5",
+    "firebase": "^10.12.2",
+    "sodium-native": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
