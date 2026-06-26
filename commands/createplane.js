@@ -60,7 +60,7 @@ const TEMPLATES = {
     seat_cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
     has_business: true,
     business_rows: 4,
-    notes: 'Medium-haul widebody, regional international routes',
+    notes: 'Medium-haul widebody, regional international routes'
   },
 };
 
