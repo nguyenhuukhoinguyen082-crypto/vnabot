@@ -1,14 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
 const { getFlights } = require('../firebase');
-
-const STATUS_EMOJI = {
-  scheduled: '🕐',
-  boarding: '🚪',
-  departed: '✈️',
-  arrived: '🛬',
-  cancelled: '❌',
-  delayed: '⏳',
-};
+const { FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -22,16 +14,16 @@ module.exports = {
     const active = flights.filter(f => f.status !== 'cancelled' && f.status !== 'ended');
 
     if (!active.length) {
-      return interaction.editReply({ content: '✈️ No flights scheduled right now. Check back later!' });
+      return interaction.editReply({
+        components: [new TextDisplayBuilder().setContent('> No flights scheduled right now. Check back later!')],
+        flags: MessageFlags.IsComponentsV2,
+      });
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('🇻🇳 Vietnam Airlines Group | PTFS — Flights')
-      .setDescription(`**${active.length}** flight(s) currently available for booking.`)
-      .setThumbnail('https://i.postimg.cc/SRMftcKS/vna.jpg')
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao • Use /book to book a flight' })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(td => td.setContent('# Vietnam Airlines Group | PTFS - Flights'))
+      .addTextDisplayComponents(td => td.setContent(`> **${active.length}** flight(s) currently available for booking.`));
 
     for (const flight of active) {
       const statusEmoji = STATUS_EMOJI[flight.status?.toLowerCase()] || '🕐';
@@ -45,25 +37,18 @@ module.exports = {
       const status = flight.status || 'Scheduled';
       const bookings = flight.bookings_open ? '✅ Open' : '❌ Closed';
 
-      embed.addFields({
-        name: `${statusEmoji} Flight ${fn} — ${origin} → ${dest}`,
-        value: [
-          `> 🕐 **Time:** ${time}`,
-          `> ✈️ **Aircraft:** ${aircraft}`,
-          `> 🚪 **Gate:** ${gate}`,
-          `> 💼 **Business Class:** ${business}`,
-          `> 📋 **Status:** ${status}`,
-          `> 🎫 **Bookings:** ${bookings}`,
-        ].join('\n'),
-        inline: false,
-      });
+      container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(td => td.setContent(`### ${statusEmoji} Flight ${fn} - ${origin} to ${dest}`));
+      container.addTextDisplayComponents(td => td.setContent(`> **Time:** \`${time}\``));
+      container.addTextDisplayComponents(td => td.setContent(`> **Aircraft:** \`${aircraft}\``));
+      container.addTextDisplayComponents(td => td.setContent(`> **Gate:** \`${gate}\``));
+      container.addTextDisplayComponents(td => td.setContent(`> **Business:** \`${business}\``));
+      container.addTextDisplayComponents(td => td.setContent(`> **Status:** \`${status}\``));
+      container.addTextDisplayComponents(td => td.setContent(`> **Bookings:** \`${bookings}\``));
     }
 
-    embed.addFields({
-      name: '\u200b',
-      inline: false,
-    });
+    container.addTextDisplayComponents(td => td.setContent(`-# Use /book to book a flight · ${FOOTER}`));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

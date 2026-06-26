@@ -1,12 +1,13 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, SectionBuilder, TextDisplayBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { getCareerConfig, updateCareerConfig } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,31 +17,36 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission.' });
     }
 
     let config = await getCareerConfig();
 
-    function buildEmbed() {
+    function buildContainer(title = 'Career Dashboard', color = COLORS.primary) {
       const rankLines = config.ranks.map(r =>
-        `🎖️ **${r.name}** — ${r.days_required}d in server + ${r.flights_required} flights${r.role_id ? ` → <@&${r.role_id}>` : ' (no role set)'}`
+        `**${r.name}** — ${r.days_required}d in server + ${r.flights_required} flights${r.role_id ? ` → <@&${r.role_id}>` : ' (no role set)'}`
       ).join('\n');
 
-      return new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('👨‍✈️ Career Dashboard')
-        .setThumbnail(LOGO)
-        .setDescription('Configure pilot rank requirements and role rewards.\nUsers need BOTH the days-in-server AND flights requirement to rank up.')
-        .addFields({ name: '🎖️ Ranks & Role Rewards', value: rankLines, inline: false })
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Click buttons below to configure' })
-        .setTimestamp();
+      return new ContainerBuilder()
+        .setAccentColor(color)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# ${title}`),
+              td => td.setContent('Configure pilot rank requirements and role rewards.\nUsers need BOTH the days-in-server AND flights requirement to rank up.'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`> **Ranks & Role Rewards**\n${rankLines}`))
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} • Click buttons below to configure`));
     }
 
     function buildRows() {
       const rankButtons = config.ranks.map((r, i) =>
-        new ButtonBuilder().setCustomId(`eco_ranktier_${i}`).setLabel(`Edit ${r.name}`).setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId(`career_ranktier_${i}`).setLabel(`Edit ${r.name}`).setStyle(ButtonStyle.Primary)
       );
 
       const rows = [];
@@ -49,13 +55,13 @@ module.exports = {
       }
 
       rows.push(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('eco_rankdone').setLabel('Done ✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('career_rankdone').setLabel('Done').setStyle(ButtonStyle.Success),
       ));
 
       return rows.slice(0, 5);
     }
 
-    const msg = await interaction.editReply({ embeds: [buildEmbed()], components: buildRows() });
+    const msg = await interaction.editReply({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
 
     const collector = msg.createMessageComponentCollector({ time: 300_000, filter: i => i.user.id === interaction.user.id });
 
@@ -63,13 +69,13 @@ module.exports = {
       try {
         const id = i.customId;
 
-        if (id === 'eco_rankdone') {
+        if (id === 'career_rankdone') {
           collector.stop('done');
-          return await i.update({ embeds: [buildEmbed().setTitle('✅ Career Config Saved').setColor(0x00B050)], components: [] });
+          return await i.update({ components: [buildContainer('Career Config Saved', COLORS.success)], flags: MessageFlags.IsComponentsV2 });
         }
 
-        if (id.startsWith('eco_ranktier_')) {
-          const rankIndex = parseInt(id.replace('eco_ranktier_', ''));
+        if (id.startsWith('career_ranktier_')) {
+          const rankIndex = parseInt(id.replace('career_ranktier_', ''));
           const rank = config.ranks[rankIndex];
 
           const modal = new ModalBuilder().setCustomId(`rank_modal_${rankIndex}`).setTitle(`Edit ${rank.name} Rank`);
@@ -98,7 +104,7 @@ module.exports = {
           config.ranks[rankIndex].role_id = roleId;
 
           await updateCareerConfig({ ranks: config.ranks });
-          return await submitted.update({ embeds: [buildEmbed()], components: buildRows() });
+          return await submitted.update({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
         }
       } catch (err) {
         console.error('Career Dashboard error:', err.message);

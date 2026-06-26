@@ -1,10 +1,13 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, MessageFlags, PermissionFlagsBits,
+  ContainerBuilder, SectionBuilder,
+  TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
   ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder,
   ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ComponentType,
 } = require('discord.js');
 const { getFleet, updatePlane } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,9 +19,8 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission to use this command.' });
     }
 
     const regInput = interaction.options.getString('registration').toUpperCase().replace('VN-', '');
@@ -30,27 +32,31 @@ module.exports = {
 
     if (!plane) {
       const list = fleet.map(p => `• **${p.display_name}** — VN-${p.tail_registration}`).join('\n');
-      return interaction.editReply({ content: `❌ Aircraft **VN-${regInput}** not found.\n\nFleet:\n${list || 'Empty'}` });
+      return interaction.editReply({ content: `> Aircraft **VN-${regInput}** not found.\n\nFleet:\n${list || 'Empty'}` });
     }
 
     function buildDashboard(p) {
-      return new EmbedBuilder()
-        .setColor(0x0099FF)
-        .setTitle(`✏️ Editing: ${p.display_name} — VN-${p.tail_registration}`)
-        .setDescription('Use the buttons below to edit this aircraft.')
-        .addFields(
-          { name: '✈️ Type', value: p.aircraft_type || 'N/A', inline: true },
-          { name: '🏷️ Display Name', value: p.display_name || 'N/A', inline: true },
-          { name: '🔖 Registration', value: `VN-${p.tail_registration}`, inline: true },
-          { name: '💺 Capacity', value: `${p.passenger_capacity || 'N/A'}`, inline: true },
-          { name: '🪑 Seat Config', value: p.seat_config || 'N/A', inline: true },
-          { name: '💼 Business Class', value: p.has_business ? `✅ ${p.business_rows || 0} rows` : '❌ No', inline: true },
-          { name: '🔧 Status', value: p.service_status || p.status || 'N/A', inline: true },
-          { name: '📝 Description', value: (p.description || 'N/A').slice(0, 200), inline: false },
-          { name: '🖼️ Image', value: p.image_url ? `[View Image](${p.image_url})` : 'None', inline: false },
-        )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Click a button to edit that field' })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(0x0099FF)
+        .addTextDisplayComponents(td => td.setContent(`# Editing: ${p.display_name} — VN-${p.tail_registration}`))
+        .addTextDisplayComponents(td => td.setContent('Use the buttons below to edit this aircraft.'))
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(
+          `> **Type:** ${p.aircraft_type || 'N/A'}\n` +
+          `> **Display Name:** ${p.display_name || 'N/A'}\n` +
+          `> **Registration:** VN-${p.tail_registration}\n` +
+          `> **Capacity:** ${p.passenger_capacity || 'N/A'}\n` +
+          `> **Seat Config:** ${p.seat_config || 'N/A'}\n` +
+          `> **Business Class:** ${p.has_business ? `Yes ${p.business_rows || 0} rows` : 'No'}\n` +
+          `> **Status:** ${p.service_status || p.status || 'N/A'}`
+        ))
+        .addTextDisplayComponents(td => td.setContent(`> **Description:** ${(p.description || 'N/A').slice(0, 200)}`))
+        .addTextDisplayComponents(td => td.setContent(
+          p.image_url ? `> **Image:** [View Image](${p.image_url})` : '> **Image:** None'
+        ))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} • Click a button to edit that field`));
+
+      return [container];
     }
 
     function buildRows() {
@@ -80,7 +86,10 @@ module.exports = {
     }
 
     let current = { ...plane };
-    const msg = await interaction.editReply({ embeds: [buildDashboard(current)], components: buildRows() });
+    const msg = await interaction.editReply({
+      components: [...buildDashboard(current), ...buildRows()],
+      flags: MessageFlags.IsComponentsV2,
+    });
 
     const collector = msg.createMessageComponentCollector({
       componentType: ComponentType.Button,
@@ -89,7 +98,6 @@ module.exports = {
     });
 
     collector.on('collect', async (btn) => {
-      // Status buttons — no modal needed
       if (btn.customId.startsWith('ep_status_')) {
         const statusMap = {
           ep_status_active: 'Active (Airworthy)',
@@ -99,31 +107,57 @@ module.exports = {
         };
         current.service_status = statusMap[btn.customId];
         await updatePlane(plane.id, { service_status: current.service_status });
-        return btn.update({ embeds: [buildDashboard(current)], components: buildRows() });
+        return btn.update({
+          components: [...buildDashboard(current), ...buildRows()],
+          flags: MessageFlags.IsComponentsV2,
+        });
       }
 
-      // Business toggle
       if (btn.customId === 'ep_business_yes') {
         current.has_business = true;
         await updatePlane(plane.id, { has_business: true });
-        return btn.update({ embeds: [buildDashboard(current)], components: buildRows() });
+        return btn.update({
+          components: [...buildDashboard(current), ...buildRows()],
+          flags: MessageFlags.IsComponentsV2,
+        });
       }
       if (btn.customId === 'ep_business_no') {
         current.has_business = false;
         await updatePlane(plane.id, { has_business: false });
-        return btn.update({ embeds: [buildDashboard(current)], components: buildRows() });
-      }
-
-      // Done
-      if (btn.customId === 'ep_done') {
-        collector.stop('done');
         return btn.update({
-          embeds: [buildDashboard(current).setTitle(`✅ Saved: ${current.display_name} — VN-${current.tail_registration}`).setColor(0x00B050)],
-          components: [],
+          components: [...buildDashboard(current), ...buildRows()],
+          flags: MessageFlags.IsComponentsV2,
         });
       }
 
-      // Modal fields
+      if (btn.customId === 'ep_done') {
+        collector.stop('done');
+        const doneContainer = new ContainerBuilder()
+          .setAccentColor(COLORS.success)
+          .addTextDisplayComponents(td => td.setContent(`# Saved: ${current.display_name} — VN-${current.tail_registration}`))
+          .addTextDisplayComponents(td => td.setContent('Use the buttons below to edit this aircraft.'))
+          .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(td => td.setContent(
+            `> **Type:** ${current.aircraft_type || 'N/A'}\n` +
+            `> **Display Name:** ${current.display_name || 'N/A'}\n` +
+            `> **Registration:** VN-${current.tail_registration}\n` +
+            `> **Capacity:** ${current.passenger_capacity || 'N/A'}\n` +
+            `> **Seat Config:** ${current.seat_config || 'N/A'}\n` +
+            `> **Business Class:** ${current.has_business ? `Yes ${current.business_rows || 0} rows` : 'No'}\n` +
+            `> **Status:** ${current.service_status || current.status || 'N/A'}`
+          ))
+          .addTextDisplayComponents(td => td.setContent(`> **Description:** ${(current.description || 'N/A').slice(0, 200)}`))
+          .addTextDisplayComponents(td => td.setContent(
+            current.image_url ? `> **Image:** [View Image](${current.image_url})` : '> **Image:** None'
+          ))
+          .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
+        return btn.update({
+          components: [doneContainer],
+          flags: MessageFlags.IsComponentsV2,
+        });
+      }
+
       const modalMap = {
         ep_name: { title: 'Edit Display Name', label: 'Display Name', field: 'display_name', current: current.display_name },
         ep_type: { title: 'Edit Aircraft Type', label: 'Aircraft Type', field: 'aircraft_type', current: current.aircraft_type },
@@ -150,7 +184,6 @@ module.exports = {
       modal.addComponents(new ActionRowBuilder().addComponents(input));
       await btn.showModal(modal);
 
-      // Wait for modal submit
       const submitted = await btn.awaitModalSubmit({ time: 120_000, filter: i => i.user.id === interaction.user.id }).catch(() => null);
       if (!submitted) return;
 
@@ -160,7 +193,10 @@ module.exports = {
       current[config.field] = value;
       await updatePlane(plane.id, { [config.field]: value });
 
-      await submitted.update({ embeds: [buildDashboard(current)], components: buildRows() });
+      await submitted.update({
+        components: [...buildDashboard(current), ...buildRows()],
+        flags: MessageFlags.IsComponentsV2,
+      });
     });
 
     collector.on('end', (_, reason) => {

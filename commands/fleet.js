@@ -1,10 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getFleet } = require('../firebase');
-
-const STATUS_EMOJI = {
-  'active (airworthy)': '🟢', 'active': '🟢',
-  'maintenance': '🟡', 'grounded': '🔴', 'retired': '⚫',
-};
+const { LOGO, FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,30 +10,59 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
     const fleet = await getFleet();
-    if (!fleet.length) return interaction.editReply({ content: '✈️ No aircraft in the fleet yet.' });
+    if (!fleet.length) return interaction.editReply({ content: '> No aircraft in the fleet yet.' });
 
     let page = 0;
     const total = fleet.length;
 
-    function buildEmbed(index) {
+    function buildFleetCard(index) {
       const p = fleet[index];
       const statusEmoji = STATUS_EMOJI[(p.service_status || p.status || '').toLowerCase()] || '🟢';
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`${statusEmoji} ${p.display_name || p.aircraft_type} — VN-${p.tail_registration || p.registration}`)
-        .addFields(
-          { name: '✈️ Type', value: p.aircraft_type || 'N/A', inline: true },
-          { name: '🔖 Registration', value: `VN-${p.tail_registration || p.registration}`, inline: true },
-          { name: '💺 Capacity', value: `${p.passenger_capacity || p.seats || 'N/A'} seats`, inline: true },
-          { name: '🪑 Seat Config', value: p.seat_config || 'N/A', inline: true },
-          { name: '💼 Business Class', value: p.has_business ? `✅ ${p.business_rows || 0} rows` : '❌ No', inline: true },
-          { name: '🔧 Status', value: p.service_status || p.status || 'N/A', inline: true },
-          { name: '📝 Description', value: p.description || 'N/A', inline: false },
+
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addTextDisplayComponents(
+          td => td.setContent(`# ${statusEmoji} ${p.display_name || p.aircraft_type} — VN-${p.tail_registration || p.registration}`)
         )
-        .setFooter({ text: `Aircraft ${index + 1} of ${total} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-        .setTimestamp();
-      if (p.image_url) embed.setImage(p.image_url);
-      return embed;
+        .addSeparatorComponents(
+          sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+          td => td.setContent([
+            `> **Type:** \`${p.aircraft_type || 'N/A'}\``,
+            `> **Registration:** \`VN-${p.tail_registration || p.registration}\``,
+            `> **Capacity:** \`${p.passenger_capacity || p.seats || 'N/A'} seats\``,
+            `> **Seat Config:** \`${p.seat_config || 'N/A'}\``,
+            `> **Business Class:** \`${p.has_business ? `${p.business_rows || 0} rows` : 'No'}\``,
+            `> **Status:** \`${p.service_status || p.status || 'N/A'}\``,
+          ].join('\n'))
+        );
+
+      if (p.description) {
+        container.addTextDisplayComponents(
+          td => td.setContent(p.description)
+        );
+      }
+
+      if (p.image_url) {
+        container.addSeparatorComponents(
+          sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        );
+        container.addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(td => td.setContent('### Aircraft Image'))
+            .setThumbnailAccessory(thumb => thumb.setURL(p.image_url))
+        );
+      }
+
+      container.addSeparatorComponents(
+        sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+      );
+      container.addTextDisplayComponents(
+        td => td.setContent(`-# ${FOOTER} — Aircraft ${index + 1} of ${total}`)
+      );
+
+      return container;
     }
 
     function buildRow(index) {
@@ -48,14 +73,13 @@ module.exports = {
     }
 
     const msg = await interaction.editReply({
-      embeds: [buildEmbed(page)],
-      components: total > 1 ? [buildRow(page)] : [],
+      components: total > 1 ? [buildFleetCard(page), buildRow(page)] : [buildFleetCard(page)],
+      flags: MessageFlags.IsComponentsV2,
     });
 
     if (total <= 1) return;
 
     const collector = msg.createMessageComponentCollector({
-      componentType: ComponentType.Button,
       time: 120_000,
       filter: i => i.user.id === interaction.user.id,
     });
@@ -64,7 +88,7 @@ module.exports = {
       try {
         if (btn.customId === 'fl_prev') page = Math.max(0, page - 1);
         if (btn.customId === 'fl_next') page = Math.min(total - 1, page + 1);
-        await btn.update({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+        await btn.update({ components: [buildFleetCard(page), buildRow(page)], flags: MessageFlags.IsComponentsV2 });
       } catch (err) {
         console.error('Fleet collector error:', err.message);
       }

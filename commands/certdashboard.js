@@ -1,12 +1,13 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, SectionBuilder, TextDisplayBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { getCertConfig, updateCertConfig } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,43 +17,48 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission.' });
     }
 
     let config = await getCertConfig();
 
-    function buildEmbed() {
+    function buildContainer(title = '🎓 Certification Dashboard', color = COLORS.warning) {
       const lines = config.types.map(t =>
         `🎓 **${t.name}** ${t.role_id ? `→ <@&${t.role_id}>` : '(no role set)'}`
       ).join('\n');
 
-      return new EmbedBuilder()
-        .setColor(0xC4972A)
-        .setTitle('🎓 Certification Dashboard')
-        .setThumbnail(LOGO)
-        .setDescription('Configure which Discord role each certification type grants when issued.')
-        .addFields({ name: '🎖️ Certification Types', value: lines, inline: false })
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Click a button to set its role' })
-        .setTimestamp();
+      return new ContainerBuilder()
+        .setAccentColor(color)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# ${title}`),
+              td => td.setContent('Configure which Discord role each certification type grants when issued.'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`> **🎖️ Certification Types**\n${lines}`))
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} • Click a button to set its role`));
     }
 
     function buildRows() {
       const buttons = config.types.map((t, i) =>
-        new ButtonBuilder().setCustomId(`eco_certtype_${i}`).setLabel(`Edit ${t.name}`).setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId(`cert_type_${i}`).setLabel(`Edit ${t.name}`).setStyle(ButtonStyle.Primary)
       );
       const rows = [];
       for (let i = 0; i < buttons.length; i += 4) {
         rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 4)));
       }
       rows.push(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('eco_certdone').setLabel('Done ✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('cert_done').setLabel('Done ✅').setStyle(ButtonStyle.Success),
       ));
       return rows.slice(0, 5);
     }
 
-    const msg = await interaction.editReply({ embeds: [buildEmbed()], components: buildRows() });
+    const msg = await interaction.editReply({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
 
     const collector = msg.createMessageComponentCollector({ time: 300_000, filter: i => i.user.id === interaction.user.id });
 
@@ -60,13 +66,13 @@ module.exports = {
       try {
         const id = i.customId;
 
-        if (id === 'eco_certdone') {
+        if (id === 'cert_done') {
           collector.stop('done');
-          return await i.update({ embeds: [buildEmbed().setTitle('✅ Certification Config Saved').setColor(0x00B050)], components: [] });
+          return await i.update({ components: [buildContainer('✅ Certification Config Saved', COLORS.success)], flags: MessageFlags.IsComponentsV2 });
         }
 
-        if (id.startsWith('eco_certtype_')) {
-          const index = parseInt(id.replace('eco_certtype_', ''));
+        if (id.startsWith('cert_type_')) {
+          const index = parseInt(id.replace('cert_type_', ''));
           const type = config.types[index];
 
           const modal = new ModalBuilder().setCustomId(`cert_modal_${index}`).setTitle(`Edit ${type.name}`);
@@ -84,7 +90,7 @@ module.exports = {
           config.types[index].role_id = roleId;
 
           await updateCertConfig({ types: config.types });
-          return await submitted.update({ embeds: [buildEmbed()], components: buildRows() });
+          return await submitted.update({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
         }
       } catch (err) {
         console.error('Cert Dashboard error:', err.message);

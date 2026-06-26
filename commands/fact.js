@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 const FACTS = [
   "Vietnam Airlines was founded in 1956, making it one of Asia's oldest airlines.",
@@ -25,12 +26,16 @@ module.exports = {
   data: new SlashCommandBuilder().setName('fact').setDescription('Get a random aviation fact'),
   async execute(interaction) {
     const fact = FACTS[Math.floor(Math.random() * FACTS.length)];
+
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(td => td.setContent('# ✈️ Aviation Fact'))
+      .addTextDisplayComponents(td => td.setContent(fact))
+      .addTextDisplayComponents(td => td.setContent('-# ' + FOOTER));
+
     await interaction.reply({
-      embeds: [new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('✈️ Aviation Fact')
-        .setDescription(fact)
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
     });
   },
 };

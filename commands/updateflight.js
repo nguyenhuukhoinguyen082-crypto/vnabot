@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const { getFlight, updateFlight } = require('../firebase');
-require('dotenv').config();
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType } = require('discord.js');
+const { getFlight, updateFlight, getFlightClasses, setFlightClasses } = require('../firebase');
+const { FOOTER, COLORS, CLASS_CONFIG } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,6 +18,7 @@ module.exports = {
           { name: '📋 Status', value: 'status' },
           { name: '🛩️ Aircraft', value: 'aircraft' },
           { name: '🎫 Open Bookings', value: 'bookings_open' },
+          { name: '💳 Class Config', value: 'class_config' },
         ))
     .addStringOption(opt =>
       opt.setName('value').setDescription('New value (for bookings_open use: true or false)').setRequired(true)),
@@ -24,8 +26,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -56,6 +57,46 @@ module.exports = {
       value = value.toLowerCase();
     }
 
+    // Handle class config update
+    if (field === 'class_config') {
+      const classes = await getFlightClasses(flight.id) || {};
+      const defs = CLASS_CONFIG;
+      for (const cls of ['economy', 'premium_economy', 'business']) {
+        if (!classes[cls]) classes[cls] = { ...defs[cls] };
+      }
+
+      // Parse value as JSON: {"economy": {"cost": 100000, "role_id": "123"}, ...}
+      try {
+        const parsed = JSON.parse(value);
+        for (const cls of ['economy', 'premium_economy', 'business']) {
+          if (parsed[cls]) {
+            classes[cls] = { ...classes[cls], ...parsed[cls] };
+          }
+        }
+      } catch {
+        return interaction.editReply({
+          content: '❌ For class_config, value must be valid JSON. Example: `{"economy":{"cost":100000,"role_id":"123"},"business":{"cost":500000}}`',
+        });
+      }
+
+      await setFlightClasses(flight.id, classes);
+
+      const classInfo = Object.entries(classes).map(([k, v]) =>
+        `${v.emoji || '•'} ${v.label}: ${(v.cost || 0).toLocaleString()}₫${v.role_id ? ' · <@&' + v.role_id + '>' : ''}`
+      ).join('\n');
+
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.success)
+        .addTextDisplayComponents(
+          td => td.setContent('# ✅ Class Config Updated'),
+          td => td.setContent(`> **✈️ Flight:** ${flightNumber}`),
+          td => td.setContent(`${classInfo}`),
+          td => td.setContent(`-# Updated by ${interaction.user.username} • ${FOOTER}`),
+        );
+
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+    }
+
     await updateFlight(flight.id, { [field]: value });
 
     const fieldLabels = {
@@ -66,17 +107,16 @@ module.exports = {
       bookings_open: '🎫 Bookings Open',
     };
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ Flight Updated')
-      .addFields(
-        { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${flight.origin} → ${flight.destination}`, inline: true },
-        { name: fieldLabels[field] || field, value: `${value}`, inline: true },
-      )
-      .setFooter({ text: `Updated by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(
+        td => td.setContent('# ✅ Flight Updated'),
+        td => td.setContent(`> **✈️ Flight:** ${flightNumber}`),
+        td => td.setContent(`> **🛩️ Route:** ${flight.origin} → ${flight.destination}`),
+        td => td.setContent(`> **${fieldLabels[field] || field}:** ${value}`),
+        td => td.setContent(`-# Updated by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

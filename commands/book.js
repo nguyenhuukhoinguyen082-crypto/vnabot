@@ -1,43 +1,65 @@
 const {
-  SlashCommandBuilder, EmbedBuilder,
+  SlashCommandBuilder, MessageFlags,
+  ContainerBuilder, SectionBuilder,
+  TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
   ActionRowBuilder, StringSelectMenuBuilder,
   ButtonBuilder, ButtonStyle, ComponentType,
 } = require('discord.js');
 const {
   getFlight, getBookings, getUserBooking, createBooking, cancelBooking,
+  getFlightClasses,
 } = require('../firebase');
 const { detectConfig, buildSeatMap, getPageCount, getRowOptions } = require('./seatmap');
 const { awardMiles, deductMiles, updateCareerProgress } = require('./ffhelper');
+const { LOGO, FOOTER, COLORS, CLASS_CONFIG } = require('../config');
+const { isUBEnabled, getUBBalance, deductUB } = require('../services/unbelievaboat');
 
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const pendingSeats = new Map();
 
-// ─── Embed builder ────────────────────────────────────────────────────────────
-function buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages) {
+function getClassMeta(seatClass) {
+  const map = {
+    economy:         { emoji: '■', label: 'Economy',       color: COLORS.primary },
+    premium_economy: { emoji: '🔵', label: 'Premium Economy', color: 0x3498DB },
+    business:        { emoji: '★', label: 'Business',      color: COLORS.warning },
+  };
+  return map[seatClass] || map.economy;
+}
+
+// ─── Component builder ─────────────────────────────────────────────────────────
+function buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages, warning) {
   const taken = takenSeats.length;
   const total = config.cols.length * config.totalRows
     - (config.gapRows?.length || 0) * config.cols.length;
   const available = total - taken;
+  const cls = getClassMeta(seatClass);
 
-  return new EmbedBuilder()
-    .setColor(seatClass === 'business' ? 0xC4972A : 0x007B8A)
-    .setTitle(`🗺️ Seat Map — Flight ${flight.flight_number}`)
-    .setThumbnail(LOGO)
-    .setDescription([
-      `**Route:** ${flight.origin || 'N/A'} ✈️ ${flight.destination || 'N/A'}`,
-      `**Aircraft:** ${config.name}`,
-      `**Class:** ${seatClass === 'business' ? '💼 Business Class' : '💺 Economy Class'}`,
-      `**Rows shown:** ${page * 10 + 1}–${Math.min((page + 1) * 10, config.totalRows)} of ${config.totalRows} (Page ${page + 1}/${totalPages})`,
-      '',
-      buildSeatMap(config, takenSeats, null, page),
-    ].join('\n'))
-    .addFields(
-      { name: '🟩 Available', value: `${available}`, inline: true },
-      { name: '🟥 Taken', value: `${taken}`, inline: true },
-      { name: '\u200b', value: '\u200b', inline: true },
-      { name: '📋 Instructions', value: '> **Step 1:** Select a row from the dropdown\n> **Step 2:** Click your seat column button', inline: false },
+  const container = new ContainerBuilder()
+    .setAccentColor(cls.color)
+    .addSectionComponents(section =>
+      section
+        .addTextDisplayComponents(td => td.setContent(`# Seat Map - Flight ${flight.flight_number}`))
+        .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
     )
-    .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-    .setTimestamp();
+    .addTextDisplayComponents(td => td.setContent(
+      `**Route:** ${flight.origin || 'N/A'} → ${flight.destination || 'N/A'}\n` +
+      `**Aircraft:** ${config.name}\n` +
+      `**Class:** ${cls.emoji} ${cls.label}\n` +
+      `**Rows shown:** ${page * 10 + 1}–${Math.min((page + 1) * 10, config.totalRows)} of ${config.totalRows} (Page ${page + 1}/${totalPages})`
+    ))
+    .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+
+  if (warning) {
+    container.addTextDisplayComponents(td => td.setContent(warning));
+  }
+
+  container
+    .addTextDisplayComponents(td => td.setContent(buildSeatMap(config, takenSeats, null, page)))
+    .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+    .addTextDisplayComponents(td => td.setContent(`> **Available** \`${available}\` **Taken** \`${taken}\``))
+    .addTextDisplayComponents(td => td.setContent(`> **Instructions**\n> **Step 1:** Select a row from the dropdown\n> **Step 2:** Click your seat column button`))
+    .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
+  return [container];
 }
 
 // ─── Component builders ───────────────────────────────────────────────────────
@@ -47,7 +69,7 @@ function buildRowSelect(config, page, takenSeats) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('bk_row')
-      .setPlaceholder('① Pick a row...')
+      .setPlaceholder('Pick a row...')
       .addOptions(options.slice(0, 25))
   );
 }
@@ -56,12 +78,12 @@ function buildNavButtons(page, totalPages) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('bk_prev')
-      .setLabel('◀ Previous rows')
+      .setLabel('< Previous rows')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(page === 0),
     new ButtonBuilder()
       .setCustomId('bk_next')
-      .setLabel('Next rows ▶')
+      .setLabel('Next rows >')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(page === totalPages - 1),
     new ButtonBuilder()
@@ -76,7 +98,6 @@ function buildColButtons(config, row, takenSeats) {
   const cols = config.cols;
   const actionRows = [];
 
-  // Up to 4 cols per ActionRow
   for (let i = 0; i < cols.length; i += 4) {
     const chunk = cols.slice(i, i + 4);
     actionRows.push(
@@ -104,14 +125,15 @@ module.exports = {
     .setDescription('Book or cancel a Vietnam Airlines Group | PTFS flight')
     .addSubcommand(sub =>
       sub.setName('flight')
-        .setDescription('Book a seat — interactive seat map!')
+        .setDescription('Book a seat - interactive seat map!')
         .addStringOption(opt =>
           opt.setName('flightnumber').setDescription('Flight number (e.g. VJ100)').setRequired(true))
         .addStringOption(opt =>
           opt.setName('class').setDescription('Travel class').setRequired(true)
             .addChoices(
-              { name: '💺 Economy', value: 'economy' },
-              { name: '💼 Business', value: 'business' },
+              { name: 'Economy', value: 'economy' },
+              { name: 'Premium Economy', value: 'premium_economy' },
+              { name: 'Business', value: 'business' },
             )))
     .addSubcommand(sub =>
       sub.setName('cancel')
@@ -124,9 +146,7 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // ══════════════════════════════════════════════════════════════════════════
     // /book cancel
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'cancel') {
       await interaction.deferReply({ ephemeral: true });
 
@@ -134,18 +154,17 @@ module.exports = {
       const confirm = interaction.options.getBoolean('confirm');
 
       if (!confirm) {
-        return interaction.editReply({ content: '⚠️ Set `confirm` to `true` to cancel.' });
+        return interaction.editReply({ content: '> Set `confirm` to `true` to cancel.' });
       }
 
       const flight = await getFlight(flightNumber);
-      if (!flight) return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found.` });
+      if (!flight) return interaction.editReply({ content: `> Flight **${flightNumber}** not found.` });
 
       const booking = await getUserBooking(interaction.user.id, flight.id);
-      if (!booking) return interaction.editReply({ content: `❌ You have no booking on **${flightNumber}**.` });
+      if (!booking) return interaction.editReply({ content: `> You have no booking on **${flightNumber}**.` });
 
       await cancelBooking(booking.id);
 
-      // ── Deduct LotusMiles miles and career progress for cancellation ──────
       let milesResult = null;
       try {
         milesResult = await deductMiles(interaction.guild, interaction.user.id, booking.seat_class);
@@ -154,56 +173,95 @@ module.exports = {
         console.error('Miles/career deduction failed:', err.message);
       }
 
-      const cancelEmbed = new EmbedBuilder()
-        .setColor(0xFF0000)
-        .setTitle('✅ Booking Cancelled')
-        .setThumbnail(LOGO)
-        .addFields(
-          { name: '✈️ Flight', value: flightNumber, inline: true },
-          { name: '💺 Seat', value: booking.seat || 'N/A', inline: true },
-          { name: '🎫 Code', value: booking.booking_code || 'N/A', inline: true },
+      const cancelContainer = new ContainerBuilder()
+        .setAccentColor(COLORS.danger)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(td => td.setContent('# Booking Cancelled'))
+            .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
         )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
+        .addTextDisplayComponents(td => td.setContent(
+          `> **Flight:** \`${flightNumber}\` **Seat:** \`${booking.seat || 'N/A'}\` **Code:** \`${booking.booking_code || 'N/A'}\``
+        ));
 
       if (milesResult) {
-        cancelEmbed.addFields({
-          name: '✈️ LotusMiles Lost',
-          value: `> -${milesResult.deducted.toLocaleString()} mi${milesResult.tierChanged ? `\n> ⚠️ Tier dropped: ${milesResult.oldTier.name} → ${milesResult.newTier.name}` : ''}`,
-          inline: false,
-        });
+        cancelContainer.addTextDisplayComponents(td => td.setContent(
+          `> **LotusMiles Lost:** -${milesResult.deducted.toLocaleString()} mi${milesResult.tierChanged ? `\n> Tier dropped: ${milesResult.oldTier.name} > ${milesResult.newTier.name}` : ''}`
+        ));
       }
 
-      return interaction.editReply({ embeds: [cancelEmbed] });
+      cancelContainer.addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
+      return interaction.editReply({
+        components: [cancelContainer],
+        flags: MessageFlags.IsComponentsV2,
+      });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // /book flight — Interactive seat map
-    // ══════════════════════════════════════════════════════════════════════════
+    // /book flight -- Interactive seat map
     if (sub === 'flight') {
       await interaction.deferReply({ ephemeral: true });
 
       const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
       const seatClass = interaction.options.getString('class');
 
-      // Validate flight
       const flight = await getFlight(flightNumber);
-      if (!flight) return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found. Use \`/flights\` to see available flights.` });
-      if (!flight.bookings_open) return interaction.editReply({ content: `❌ Bookings for **${flightNumber}** are closed.` });
-      if (flight.status === 'cancelled' || flight.status === 'ended') return interaction.editReply({ content: `❌ Flight **${flightNumber}** is ${flight.status}.` });
-      if (seatClass === 'business' && !flight.has_business) return interaction.editReply({ content: `❌ Flight **${flightNumber}** has no Business Class.` });
+      if (!flight) return interaction.editReply({ content: `> Flight **${flightNumber}** not found. Use \`/flights\` to see available flights.` });
+      if (!flight.bookings_open) return interaction.editReply({ content: `> Bookings for **${flightNumber}** are closed.` });
+      if (flight.status === 'cancelled' || flight.status === 'ended') return interaction.editReply({ content: `> Flight **${flightNumber}** is ${flight.status}.` });
+      if (seatClass === 'business' && !flight.has_business) return interaction.editReply({ content: `> Flight **${flightNumber}** has no Business Class.` });
 
-      // Check existing booking
       const existing = await getUserBooking(interaction.user.id, flight.id);
       if (existing) {
         return interaction.editReply({
-          embeds: [new EmbedBuilder()
-            .setColor(0x007B8A)
-            .setTitle('⚠️ Already Booked')
-            .setThumbnail(LOGO)
-            .setDescription(`You already have booking **${existing.booking_code}** on **${flightNumber}** (Seat **${existing.seat}**).\nUse \`/book cancel ${flightNumber} true\` to cancel first.`)
-            .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+          components: [
+            new ContainerBuilder()
+              .setAccentColor(COLORS.primary)
+              .addSectionComponents(section =>
+                section
+                  .addTextDisplayComponents(td => td.setContent('# Already Booked'))
+                  .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
+              )
+              .addTextDisplayComponents(td => td.setContent(
+                `You already have booking **${existing.booking_code}** on **${flightNumber}** (Seat **${existing.seat}**).\nUse \`/book cancel ${flightNumber} true\` to cancel first.`
+              ))
+              .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`)),
+          ],
+          flags: MessageFlags.IsComponentsV2,
         });
+      }
+
+      // -- Payment processing --
+      let paidAmount = 0;
+      let wasFree = false;
+
+      const classes = await getFlightClasses(flight.id);
+      const classCfg = classes?.[seatClass] || CLASS_CONFIG[seatClass];
+      const cost = classCfg?.cost || 0;
+
+      if (cost > 0) {
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        const hasRole = member && classCfg?.role_id && member.roles.cache.has(classCfg.role_id);
+
+        if (hasRole) {
+          wasFree = true;
+        } else {
+          if (!isUBEnabled()) {
+            return interaction.editReply({ content: '> Economy system is handled by Unbelievaboat. Make sure the bot is configured.' });
+          }
+          try {
+            const balance = await getUBBalance(interaction.guildId, interaction.user.id);
+            if (balance.cash >= cost) {
+              await deductUB(interaction.guildId, interaction.user.id, cost, `Flight ${flightNumber} ${getClassMeta(seatClass).label}`);
+              paidAmount = cost;
+            } else {
+              return interaction.editReply({ content: `> Insufficient funds via Unbelievaboat. **${getClassMeta(seatClass).label}** costs **${cost.toLocaleString()} VND**.` });
+            }
+          } catch (err) {
+            console.error('Payment error:', err.message);
+            return interaction.editReply({ content: `> Payment failed: ${err.message}` });
+          }
+        }
       }
 
       // Get taken seats & config
@@ -223,16 +281,21 @@ module.exports = {
       ].filter(Boolean);
 
       const msg = await interaction.editReply({
-        embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
-        components: initialComponents,
+        components: [
+          ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages),
+          ...initialComponents,
+        ],
+        flags: MessageFlags.IsComponentsV2,
       });
 
-      // ── Collector — ONLY listens to this user, on this message ──────────────
+      // -- Collector --
       const collector = msg.createMessageComponentCollector({
         filter: i => {
-          // Always acknowledge wrong-user interactions to prevent "interaction failed"
           if (i.user.id !== interaction.user.id) {
-            i.reply({ content: '❌ This seat map is not for you!', ephemeral: true }).catch(() => {});
+            i.reply({
+              components: [new TextDisplayBuilder().setContent('> This seat map is not for you!')],
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            }).catch(() => {});
             return false;
           }
           return true;
@@ -244,167 +307,192 @@ module.exports = {
         const id = i.customId;
 
         try {
-          // ── Cancel ──────────────────────────────────────────────────────
           if (id === 'bk_cancel') {
             collector.stop('cancelled');
-            return await i.update({ content: '❌ Booking cancelled.', embeds: [], components: [] });
+            return await i.update({
+              components: [new TextDisplayBuilder().setContent('> Booking cancelled.')],
+              flags: MessageFlags.IsComponentsV2,
+            });
           }
 
-          // ── Page prev ───────────────────────────────────────────────────
           if (id === 'bk_prev') {
             page = Math.max(0, page - 1);
             selectedRow = null;
             return await i.update({
-              embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
-              components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              components: [
+                ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages),
+                buildRowSelect(config, page, takenSeats),
+                buildNavButtons(page, totalPages),
+              ].filter(Boolean),
+              flags: MessageFlags.IsComponentsV2,
             });
           }
 
-          // ── Page next ───────────────────────────────────────────────────
           if (id === 'bk_next') {
             page = Math.min(totalPages - 1, page + 1);
             selectedRow = null;
             return await i.update({
-              embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
-              components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              components: [
+                ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages),
+                buildRowSelect(config, page, takenSeats),
+                buildNavButtons(page, totalPages),
+              ].filter(Boolean),
+              flags: MessageFlags.IsComponentsV2,
             });
           }
 
-          // ── Row selected ─────────────────────────────────────────────────
           if (id === 'bk_row') {
             selectedRow = parseInt(i.values[0]);
 
             const isBizRow = config.businessRows.includes(selectedRow);
             if (seatClass === 'business' && !isBizRow) {
+              const warning = `> Row **${selectedRow}** is Economy. Pick a Business row (${config.businessRows.join(', ')}).`;
               return await i.update({
-                embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)
-                  .setDescription(`⚠️ Row **${selectedRow}** is Economy. Pick a Business row (${config.businessRows.join(', ')}).\n\n` +
-                    buildSeatMap(config, takenSeats, null, page))],
-                components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+                components: [
+                  ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages, warning),
+                  buildRowSelect(config, page, takenSeats),
+                  buildNavButtons(page, totalPages),
+                ].filter(Boolean),
+                flags: MessageFlags.IsComponentsV2,
               });
             }
             if (seatClass === 'economy' && isBizRow) {
+              const warning = `> Row **${selectedRow}** is Business Class. Pick an Economy row.`;
               return await i.update({
-                embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)
-                  .setDescription(`⚠️ Row **${selectedRow}** is Business Class. Pick an Economy row.\n\n` +
-                    buildSeatMap(config, takenSeats, null, page))],
-                components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+                components: [
+                  ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages, warning),
+                  buildRowSelect(config, page, takenSeats),
+                  buildNavButtons(page, totalPages),
+                ].filter(Boolean),
+                flags: MessageFlags.IsComponentsV2,
               });
             }
 
-            // Show col buttons (max 5 ActionRows: 1 select + up to 2 col rows + 1 nav + 1 back)
             const colBtns = buildColButtons(config, selectedRow, takenSeats);
             const backRow = new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId('bk_back').setLabel('↩️ Back to rows').setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder().setCustomId('bk_back').setLabel('Back to rows').setStyle(ButtonStyle.Secondary),
               new ButtonBuilder().setCustomId('bk_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger),
             );
 
             const comps = [buildRowSelect(config, page, takenSeats), ...colBtns, backRow].filter(Boolean).slice(0, 5);
-
             const mapWithHighlight = buildSeatMap(config, takenSeats, null, page);
+
+            const rowContainer = new ContainerBuilder()
+              .setAccentColor(seatClass === 'business' ? COLORS.warning : COLORS.primary)
+              .addSectionComponents(section =>
+                section
+                  .addTextDisplayComponents(td => td.setContent(`# Pick Your Seat - Row ${selectedRow}`))
+                  .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
+              )
+              .addTextDisplayComponents(td => td.setContent(
+                `**Flight:** ${flight.flight_number} | **Route:** ${flight.origin} → ${flight.destination}\n` +
+                `**Row selected:** ${selectedRow}${config.businessRows.includes(selectedRow) ? ' (Business)' : ' (Economy)'}`
+              ))
+              .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+              .addTextDisplayComponents(td => td.setContent(mapWithHighlight))
+              .addTextDisplayComponents(td => td.setContent('> Now click your seat column below:'))
+              .addTextDisplayComponents(td => td.setContent('-# Green = available - Red = taken - Vietnam Airlines Group | PTFS'));
+
             return await i.update({
-              embeds: [new EmbedBuilder()
-                .setColor(seatClass === 'business' ? 0xC4972A : 0x007B8A)
-                .setTitle(`🗺️ Pick Your Seat — Row ${selectedRow}`)
-                .setThumbnail(LOGO)
-                .setDescription([
-                  `**Flight:** ${flight.flight_number} | **Route:** ${flight.origin} ✈️ ${flight.destination}`,
-                  `**Row selected:** ${selectedRow}${config.businessRows.includes(selectedRow) ? ' 💼 Business' : ' 💺 Economy'}`,
-                  '',
-                  mapWithHighlight,
-                  '',
-                  '> ② Now click your seat column below:',
-                ].join('\n'))
-                .setFooter({ text: 'Green = available • Red = taken • Vietnam Airlines Group | PTFS' })
-                .setTimestamp()],
-              components: comps,
+              components: [rowContainer, ...comps].filter(Boolean),
+              flags: MessageFlags.IsComponentsV2,
             });
           }
 
-          // ── Back button ──────────────────────────────────────────────────
           if (id === 'bk_back') {
             selectedRow = null;
             return await i.update({
-              embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
-              components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              components: [
+                ...buildMapContainer(flight, config, takenSeats, seatClass, page, totalPages),
+                buildRowSelect(config, page, takenSeats),
+                buildNavButtons(page, totalPages),
+              ].filter(Boolean),
+              flags: MessageFlags.IsComponentsV2,
             });
           }
 
-          // ── Seat column selected ─────────────────────────────────────────
           if (id.startsWith('bk_seat_') && selectedRow) {
             const col = id.replace('bk_seat_', '');
             const seatId = `${selectedRow}${col}`;
 
-            // Re-check taken
             if (takenSeats.includes(seatId.toUpperCase())) {
-              return await i.reply({ content: `❌ Seat **${seatId}** is taken! Pick another.`, ephemeral: true });
+              return await i.reply({
+                components: [new TextDisplayBuilder().setContent(`> Seat **${seatId}** is taken! Pick another.`)],
+                flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+              });
             }
 
-            const classLabel = seatClass === 'business' ? '💼 Business Class' : '💺 Economy Class';
+            const clsMeta = getClassMeta(seatClass);
             const timeDisplay = flight.timestamp
               ? `<t:${Math.floor(flight.timestamp / 1000)}:F>`
               : flight.time || 'TBA';
 
-            const confirmEmbed = new EmbedBuilder()
-              .setColor(0x00B050)
-              .setTitle('✅ Confirm Your Booking')
-              .setThumbnail(LOGO)
-              .setDescription([
-                `You selected **Seat ${seatId}** on flight **${flightNumber}**.`,
-                '',
-                buildSeatMap(config, takenSeats, seatId, page),
-                '',
-                '> 🟨 = Your selected seat',
-                '> Click **Confirm** to finalize your booking.',
-              ].join('\n'))
-              .addFields(
-                { name: '✈️ Flight', value: flightNumber, inline: true },
-                { name: '🗺️ Route', value: `${flight.origin} ✈️ ${flight.destination}`, inline: true },
-                { name: '🕐 Time', value: timeDisplay, inline: true },
-                { name: '🛩️ Aircraft', value: config.name, inline: true },
-                { name: '🚪 Gate', value: flight.gate || 'TBA', inline: true },
-                { name: '💺 Seat', value: `**${seatId}** (${classLabel})`, inline: true },
-              )
-              .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-              .setTimestamp();
+            const confirmContainer = new ContainerBuilder()
+              .setAccentColor(COLORS.success)
+              .addTextDisplayComponents(td => td.setContent('# Confirm Your Booking'))
+              .addTextDisplayComponents(td => td.setContent(
+                `You selected **Seat ${seatId}** on flight **${flightNumber}**.`
+              ))
+              .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+              .addTextDisplayComponents(td => td.setContent(buildSeatMap(config, takenSeats, seatId, page)))
+              .addTextDisplayComponents(td => td.setContent(
+                `> \`==\` = Your selected seat\n> Click **Confirm** to finalize your booking.`
+              ))
+              .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+              .addTextDisplayComponents(td => td.setContent(
+                `> **Flight:** \`${flightNumber}\`\n` +
+                `> **Route:** ${flight.origin} → ${flight.destination}\n` +
+                `> **Time:** \`${timeDisplay}\`\n` +
+                `> **Aircraft:** \`${config.name}\`\n` +
+                `> **Gate:** \`${flight.gate || 'TBA'}\`\n` +
+                `> **Seat:** \`${seatId}\` (${clsMeta.emoji} ${clsMeta.label})`
+              ))
+              .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
             const confirmRow = new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId('bk_confirm').setLabel('Confirm Booking ✅').setStyle(ButtonStyle.Success),
-              new ButtonBuilder().setCustomId('bk_back').setLabel('↩️ Back').setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder().setCustomId('bk_confirm').setLabel('Confirm Booking').setStyle(ButtonStyle.Success),
+              new ButtonBuilder().setCustomId('bk_back').setLabel('Back').setStyle(ButtonStyle.Secondary),
               new ButtonBuilder().setCustomId('bk_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger),
             );
 
-            // Store seat choice on the interaction for confirm step
-            i.client._pendingSeat = i.client._pendingSeat || {};
-            i.client._pendingSeat[interaction.user.id] = seatId;
+            pendingSeats.set(interaction.user.id, { seatId, paidAmount, wasFree, seatClass });
 
-            return await i.update({ embeds: [confirmEmbed], components: [confirmRow] });
+            return await i.update({
+              components: [confirmContainer, confirmRow],
+              flags: MessageFlags.IsComponentsV2,
+            });
           }
 
-          // ── Confirm booking ──────────────────────────────────────────────
           if (id === 'bk_confirm') {
-            const seatId = i.client._pendingSeat?.[interaction.user.id];
-            if (!seatId) {
+            const pending = pendingSeats.get(interaction.user.id);
+            if (!pending || !pending.seatId) {
               return await i.update({
-                content: '❌ Seat selection lost. Please restart `/book flight`.',
-                embeds: [], components: [],
+                components: [new TextDisplayBuilder().setContent('> Seat selection lost. Please restart `/book flight`.')],
+                flags: MessageFlags.IsComponentsV2,
               });
             }
 
-            // ── Defer immediately before slow Firebase operations ────────────
+            const { seatId, paidAmount: pay, wasFree: free, seatClass: cls } = pending;
+
             await i.deferUpdate();
 
-            // Final race-condition check
             const freshBookings = await getBookings(flight.id);
             const freshTaken = freshBookings.map(b => b.seat?.toUpperCase()).filter(Boolean);
             if (freshTaken.includes(seatId.toUpperCase())) {
-              return await interaction.editReply({
-                embeds: [new EmbedBuilder()
-                  .setColor(0xFF0000)
-                  .setTitle('❌ Seat Just Taken!')
-                  .setDescription(`Someone just booked seat **${seatId}**! Please go back and pick another.`)
-                  .setThumbnail(LOGO)],
-                components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              return await i.editReply({
+                components: [
+                  new ContainerBuilder()
+                    .setAccentColor(COLORS.danger)
+                    .addSectionComponents(section =>
+                      section
+                        .addTextDisplayComponents(td => td.setContent('# Seat Just Taken!'))
+                        .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
+                    )
+                    .addTextDisplayComponents(td => td.setContent(`Someone just booked seat **${seatId}**! Please go back and pick another.`)),
+                  buildRowSelect(config, page, takenSeats),
+                  buildNavButtons(page, totalPages),
+                ].filter(Boolean),
+                flags: MessageFlags.IsComponentsV2,
               });
             }
 
@@ -414,7 +502,7 @@ module.exports = {
               discord_id: interaction.user.id,
               username: interaction.user.username,
               display_name: interaction.user.displayName || interaction.user.username,
-              seat_class: seatClass,
+              seat_class: cls,
               seat: seatId,
               origin: flight.origin,
               destination: flight.destination,
@@ -422,73 +510,86 @@ module.exports = {
               timestamp: flight.timestamp,
               aircraft: flight.aircraft,
               gate: flight.gate,
+              amount_paid: pay || 0,
+              payment_method: free ? 'role_perk' : 'unbelievaboat',
             });
 
-            // Cleanup pending seat
-            if (i.client._pendingSeat) delete i.client._pendingSeat[interaction.user.id];
+            pendingSeats.delete(interaction.user.id);
 
-            // ── Award LotusMiles miles and career progress ──────────────────
             let milesResult = null;
             let careerResult = null;
             try {
-              milesResult = await awardMiles(interaction.guild, interaction.user.id, seatClass);
+              milesResult = await awardMiles(interaction.guild, interaction.user.id, cls);
               careerResult = await updateCareerProgress(interaction.guild, interaction.user.id, interaction.member?.joinedTimestamp, 1);
             } catch (err) {
               console.error('Miles/career award failed:', err.message);
             }
 
-            const classLabel = seatClass === 'business' ? '💼 Business Class' : '💺 Economy Class';
+            const clsMeta = getClassMeta(cls);
             const timeDisplay = flight.timestamp
               ? `<t:${Math.floor(flight.timestamp / 1000)}:F>`
               : flight.time || 'TBA';
 
-            const successEmbed = new EmbedBuilder()
-              .setColor(0x00B050)
-              .setTitle('🎉 Booking Confirmed!')
-              .setThumbnail(LOGO)
-              .setDescription(`Welcome aboard, **${interaction.user.displayName || interaction.user.username}**! Your seat is reserved.`)
-              .addFields(
-                { name: '🎫 Booking Code', value: `\`\`\`${code}\`\`\``, inline: false },
-                { name: '✈️ Flight', value: flightNumber, inline: true },
-                { name: '🗺️ Route', value: `${flight.origin} ✈️ ${flight.destination}`, inline: true },
-                { name: '🕐 Time', value: timeDisplay, inline: true },
-                { name: '🛩️ Aircraft', value: config.name, inline: true },
-                { name: '🚪 Gate', value: flight.gate || 'TBA', inline: true },
-                { name: '💺 Seat', value: `**${seatId}** (${classLabel})`, inline: true },
-                { name: '\u200b', value: '> 🔖 Keep your booking code safe!\n> ❌ Use `/book cancel` to cancel (this will remove earned miles).', inline: false },
+            const successContainer = new ContainerBuilder()
+              .setAccentColor(COLORS.success)
+              .addSectionComponents(section =>
+                section
+                  .addTextDisplayComponents(td => td.setContent('# Booking Confirmed!'))
+                  .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
               )
-              .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-              .setTimestamp();
+              .addTextDisplayComponents(td => td.setContent(
+                `Welcome aboard, **${interaction.user.displayName || interaction.user.username}**! Your seat is reserved.`
+              ))
+              .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+              .addTextDisplayComponents(td => td.setContent(
+                `> **Booking Code:** \`${code}\`\n` +
+                `> **Flight:** \`${flightNumber}\`\n` +
+                `> **Route:** ${flight.origin} → ${flight.destination}\n` +
+                `> **Time:** \`${timeDisplay}\`\n` +
+                `> **Aircraft:** \`${config.name}\`\n` +
+                `> **Gate:** \`${flight.gate || 'TBA'}\`\n` +
+                `> **Seat:** \`${seatId}\` (${clsMeta.emoji} ${clsMeta.label})\n` +
+                `> **Amount Paid:** \`${free ? '0 VND (Role Perk)' : `${(pay || 0).toLocaleString()} VND`}\``
+              ))
+              .addTextDisplayComponents(td => td.setContent(
+                free
+                  ? '> Free booking - class role perk applied!\n> Keep your booking code safe!'
+                  : '> Keep your booking code safe!\n> Use \`/book cancel\` to cancel (this will remove earned miles).'
+              ));
 
             if (milesResult) {
-              successEmbed.addFields({
-                name: '✈️ LotusMiles Earned',
-                value: `> +${milesResult.earned.toLocaleString()} mi${milesResult.tierChanged ? `\n> 🎉 Tier upgraded: ${milesResult.oldTier.name} → ${milesResult.newTier.name}!` : ''}`,
-                inline: false,
-              });
+              successContainer.addTextDisplayComponents(td => td.setContent(
+                `> **LotusMiles Earned:** +${milesResult.earned.toLocaleString()} mi${milesResult.tierChanged ? `\n> Tier upgraded: ${milesResult.oldTier.name} > ${milesResult.newTier.name}!` : ''}`
+              ));
             }
             if (careerResult?.rankChanged) {
-              successEmbed.addFields({
-                name: '🎖️ Career Rank Up!',
-                value: `> ${careerResult.oldRank.name} → ${careerResult.newRank.name}`,
-                inline: false,
-              });
+              successContainer.addTextDisplayComponents(td => td.setContent(
+                `> **Career Rank Up!** ${careerResult.oldRank.name} > ${careerResult.newRank.name}`
+              ));
             }
 
+            successContainer.addTextDisplayComponents(td => td.setContent(
+              `-# ${free ? 'Role Perk Applied' : `Paid ${(pay || 0).toLocaleString()} VND - ${FOOTER}`}`
+            ));
+
             collector.stop('booked');
-            return await interaction.editReply({ embeds: [successEmbed], components: [] });
+            return await i.editReply({
+              components: [successContainer],
+              flags: MessageFlags.IsComponentsV2,
+            });
           }
 
-          // ── Fallthrough — acknowledge to prevent "interaction failed" ────
           if (!i.replied && !i.deferred) {
             await i.deferUpdate().catch(() => {});
           }
 
         } catch (err) {
           console.error('Seat map error:', err);
-          // Always acknowledge to prevent "interaction failed"
           if (!i.replied && !i.deferred) {
-            await i.reply({ content: '❌ Something went wrong. Please try again.', ephemeral: true }).catch(() => {});
+            await i.reply({
+              components: [new TextDisplayBuilder().setContent('> Something went wrong. Please try again.')],
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            }).catch(() => {});
           }
         }
       });
@@ -496,8 +597,8 @@ module.exports = {
       collector.on('end', (_, reason) => {
         if (reason === 'time') {
           interaction.editReply({
-            content: '⏱️ Timed out after 5 minutes. Run `/book flight` again.',
-            embeds: [], components: [],
+            components: [new TextDisplayBuilder().setContent('> Timed out after 5 minutes. Run `/book flight` again.')],
+            flags: MessageFlags.IsComponentsV2,
           }).catch(() => {});
         }
       });

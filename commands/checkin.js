@@ -1,11 +1,12 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, MessageFlags, PermissionFlagsBits,
+  ContainerBuilder, SectionBuilder,
+  TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType,
 } = require('discord.js');
 const { getFlight, getBookings, cancelBooking } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,21 +18,19 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission to use this command.' });
     }
 
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
     const flight = await getFlight(flightNumber);
-    if (!flight) return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found.` });
+    if (!flight) return interaction.editReply({ content: `> Flight **${flightNumber}** not found.` });
 
     const bookings = await getBookings(flight.id);
     if (!bookings.length) {
-      return interaction.editReply({ content: `📋 Flight **${flightNumber}** has no bookings to check in.` });
+      return interaction.editReply({ content: `> Flight **${flightNumber}** has no bookings to check in.` });
     }
 
-    // Sort by seat for readability
     const sorted = [...bookings].sort((a, b) => (a.seat || '').localeCompare(b.seat || ''));
 
     let page = 0;
@@ -39,32 +38,38 @@ module.exports = {
     const totalPages = Math.ceil(sorted.length / perPage);
     let checkedIn = new Set();
 
-    function buildEmbed(p) {
+    function buildContainer(p) {
       const slice = sorted.slice(p * perPage, (p + 1) * perPage);
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`🛂 Check-In — Flight ${flightNumber}`)
-        .setThumbnail(LOGO)
-        .setDescription(`**${bookings.length - checkedIn.size}** passenger(s) remaining to check in.\nRoute: ${flight.origin} ✈️ ${flight.destination}`)
-        .setFooter({ text: `Page ${p + 1} of ${totalPages} • Vietnam Airlines Group | PTFS` })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(td => td.setContent(`# Check-In - Flight ${flightNumber}`))
+            .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
+        )
+        .addTextDisplayComponents(td => td.setContent(
+          `> **${bookings.length - checkedIn.size}** passenger(s) remaining to check in.\n` +
+          `> Route: ${flight.origin} > ${flight.destination}`
+        ))
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
       for (const b of slice) {
-        const status = checkedIn.has(b.id) ? '✅ Checked In' : '⏳ Pending';
-        embed.addFields({
-          name: `💺 Seat ${b.seat} — ${b.display_name || b.username}`,
-          value: `> 🎫 Code: \`${b.booking_code}\`\n> 📋 Status: ${status}`,
-          inline: false,
-        });
+        const status = checkedIn.has(b.id) ? 'Checked In' : 'Pending';
+        container.addTextDisplayComponents(td => td.setContent(
+          `### Seat ${b.seat} — ${b.display_name || b.username}\n` +
+          `> Code: \`${b.booking_code}\`\n` +
+          `> Status: ${status}`
+        ));
       }
-      return embed;
+
+      container.addTextDisplayComponents(td => td.setContent(`-# Page ${p + 1} of ${totalPages} - ${FOOTER}`));
+      return container;
     }
 
     function buildRows(p) {
       const slice = sorted.slice(p * perPage, (p + 1) * perPage);
       const rows = [];
 
-      // Check-in buttons (up to 5 per row, one row per booking on this page — max 5 bookings per page)
       const checkinRow = new ActionRowBuilder().addComponents(
         slice.map(b =>
           new ButtonBuilder()
@@ -72,14 +77,13 @@ module.exports = {
             .setLabel(`Seat ${b.seat}`)
             .setStyle(checkedIn.has(b.id) ? ButtonStyle.Secondary : ButtonStyle.Success)
             .setDisabled(checkedIn.has(b.id))
-            .setEmoji(checkedIn.has(b.id) ? '✅' : '🛂')
         )
       );
       rows.push(checkinRow);
 
       const navRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ci_prev').setLabel('◀ Previous').setStyle(ButtonStyle.Secondary).setDisabled(p === 0),
-        new ButtonBuilder().setCustomId('ci_next').setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(p === totalPages - 1),
+        new ButtonBuilder().setCustomId('ci_prev').setLabel('< Previous').setStyle(ButtonStyle.Secondary).setDisabled(p === 0),
+        new ButtonBuilder().setCustomId('ci_next').setLabel('Next >').setStyle(ButtonStyle.Secondary).setDisabled(p === totalPages - 1),
         new ButtonBuilder().setCustomId('ci_done').setLabel('Finish Check-In').setStyle(ButtonStyle.Danger),
       );
       rows.push(navRow);
@@ -87,7 +91,10 @@ module.exports = {
       return rows;
     }
 
-    const msg = await interaction.editReply({ embeds: [buildEmbed(page)], components: buildRows(page) });
+    const msg = await interaction.editReply({
+      components: [buildContainer(page), ...buildRows(page)],
+      flags: MessageFlags.IsComponentsV2,
+    });
 
     const collector = msg.createMessageComponentCollector({
       componentType: ComponentType.Button,
@@ -101,18 +108,33 @@ module.exports = {
 
         if (id === 'ci_prev') {
           page = Math.max(0, page - 1);
-          return await btn.update({ embeds: [buildEmbed(page)], components: buildRows(page) });
+          return await btn.update({
+            components: [buildContainer(page), ...buildRows(page)],
+            flags: MessageFlags.IsComponentsV2,
+          });
         }
         if (id === 'ci_next') {
           page = Math.min(totalPages - 1, page + 1);
-          return await btn.update({ embeds: [buildEmbed(page)], components: buildRows(page) });
+          return await btn.update({
+            components: [buildContainer(page), ...buildRows(page)],
+            flags: MessageFlags.IsComponentsV2,
+          });
         }
 
         if (id === 'ci_done') {
           collector.stop('done');
+          const doneContainer = new ContainerBuilder()
+            .setAccentColor(COLORS.success)
+            .addTextDisplayComponents(td => td.setContent(`# Check-In Session Ended - Flight ${flightNumber}`))
+            .addTextDisplayComponents(td => td.setContent(
+              `> **${checkedIn.size}** passenger(s) checked in.\n` +
+              `> Route: ${flight.origin} > ${flight.destination}`
+            ))
+            .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
           return await btn.update({
-            embeds: [buildEmbed(page).setTitle(`✅ Check-In Session Ended — Flight ${flightNumber}`).setColor(0x00B050)],
-            components: [],
+            components: [doneContainer],
+            flags: MessageFlags.IsComponentsV2,
           });
         }
 
@@ -120,41 +142,46 @@ module.exports = {
           const bookingId = id.replace('ci_check_', '');
           const booking = sorted.find(b => b.id === bookingId);
           if (!booking) {
-            return await btn.reply({ content: '❌ Booking not found.', ephemeral: true });
+            return await btn.reply({
+              components: [new TextDisplayBuilder().setContent('> Booking not found.')],
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            });
           }
           if (checkedIn.has(bookingId)) {
-            return await btn.update({ embeds: [buildEmbed(page)], components: buildRows(page) });
+            return await btn.update({
+              components: [buildContainer(page), ...buildRows(page)],
+              flags: MessageFlags.IsComponentsV2,
+            });
           }
 
-          // ── Acknowledge IMMEDIATELY before any slow operations ──────────────
-          // Discord requires a response within 3 seconds. cancelBooking() and
-          // the DM send below can both take longer than that, so we defer
-          // first and use editReply() afterward instead of update().
           await btn.deferUpdate();
 
-          // Mark checked in, remove booking, notify passenger via DM
           checkedIn.add(bookingId);
           await cancelBooking(bookingId);
 
-          // Notify passenger via DM
           try {
             const passengerUser = await interaction.client.users.fetch(booking.discord_id).catch(() => null);
             if (passengerUser) {
-              const dmEmbed = new EmbedBuilder()
-                .setColor(0x00B050)
-                .setTitle('✅ You\'ve Been Checked In!')
-                .setThumbnail(LOGO)
-                .setDescription(`You have been successfully checked in for your flight.`)
-                .addFields(
-                  { name: '✈️ Flight', value: flightNumber, inline: true },
-                  { name: '💺 Seat', value: booking.seat, inline: true },
-                  { name: '🗺️ Route', value: `${flight.origin} ✈️ ${flight.destination}`, inline: true },
-                  { name: '🛂 Checked In By', value: interaction.user.username, inline: false },
+              const dmContainer = new ContainerBuilder()
+                .setAccentColor(COLORS.success)
+                .addSectionComponents(section =>
+                  section
+                    .addTextDisplayComponents(td => td.setContent('# Checked In!'))
+                    .setThumbnailAccessory(thumb => thumb.setURL(LOGO))
                 )
-                .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao • Have a great flight!' })
-                .setTimestamp();
+                .addTextDisplayComponents(td => td.setContent('You have been checked in for your flight.'))
+                .addTextDisplayComponents(td => td.setContent(
+                  `> **Flight:** \`${flightNumber}\`\n` +
+                  `> **Seat:** \`${booking.seat}\`\n` +
+                  `> **Route:** ${flight.origin} > ${flight.destination}\n` +
+                  `> **Checked In By:** ${interaction.user.username}`
+                ))
+                .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} - Have a great flight!`));
 
-              await passengerUser.send({ embeds: [dmEmbed] }).catch(() => {
+              await passengerUser.send({
+                components: [dmContainer],
+                flags: MessageFlags.IsComponentsV2,
+              }).catch(() => {
                 console.log(`Could not DM ${booking.username} — DMs likely closed.`);
               });
             }
@@ -162,7 +189,10 @@ module.exports = {
             console.error('Check-in DM failed:', err.message);
           }
 
-          return await interaction.editReply({ embeds: [buildEmbed(page)], components: buildRows(page) });
+          return await interaction.editReply({
+            components: [buildContainer(page), ...buildRows(page)],
+            flags: MessageFlags.IsComponentsV2,
+          });
         }
       } catch (err) {
         console.error('Check-in collector error:', err.message);

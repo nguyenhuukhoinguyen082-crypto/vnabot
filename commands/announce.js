@@ -1,5 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-require('dotenv').config();
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -27,8 +28,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -39,26 +39,22 @@ module.exports = {
     const pingRole = interaction.options.getRole('ping');
 
     const typeConfig = {
-      general:     { emoji: '📢', color: 0x007B8A },
+      general:     { emoji: '📢', color: COLORS.primary },
       flight:      { emoji: '✈️', color: 0x0099FF },
-      event:       { emoji: '🎉', color: 0xC4972A },
-      important:   { emoji: '⚠️', color: 0x007B8A },
-      maintenance: { emoji: '🛠️', color: 0x888888 },
+      event:       { emoji: '🎉', color: COLORS.warning },
+      important:   { emoji: '⚠️', color: COLORS.primary },
+      maintenance: { emoji: '🛠️', color: COLORS.neutral },
     };
 
     const config = typeConfig[type];
 
-    const embed = new EmbedBuilder()
-      .setColor(config.color)
-      .setTitle(`${config.emoji} ${title}`)
-      .setDescription(message)
-      .setThumbnail('https://i.postimg.cc/SRMftcKS/vna.jpg')
-      .addFields({
-        name: '\u200b',
-        inline: false,
-      })
-      .setFooter({ text: `Announced by ${interaction.user.username} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(config.color)
+      .addTextDisplayComponents(
+        td => td.setContent(`# ${config.emoji} ${title}`),
+        td => td.setContent(message),
+        td => td.setContent(`-# Announced by ${interaction.user.username} • ${FOOTER}`),
+      );
 
     // Determine target channel
     let targetChannel;
@@ -73,7 +69,7 @@ module.exports = {
 
     const pingContent = pingRole ? `<@&${pingRole.id}>` : null;
 
-    await targetChannel.send({ content: pingContent, embeds: [embed] });
+    await targetChannel.send({ content: pingContent, components: [container], flags: MessageFlags.IsComponentsV2 });
 
     await interaction.editReply({
       content: `✅ Announcement posted in <#${targetChannel.id}>!`,

@@ -1,13 +1,13 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, SectionBuilder, TextDisplayBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle,
-  StringSelectMenuBuilder, RoleSelectMenuBuilder, ComponentType,
 } = require('discord.js');
 const { getFFConfig, updateFFConfig } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 const TIER_EMOJI = { Member: '⚪', Silver: '⚪', Gold: '🟡', Platinum: '💎' };
 
 module.exports = {
@@ -18,57 +18,61 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission.' });
     }
 
     let config = await getFFConfig();
 
-    function buildEmbed() {
+    function buildContainer(title = '✈️ LotusMiles Dashboard', color = COLORS.primary) {
       const tierLines = config.tiers.map(t =>
         `${TIER_EMOJI[t.name] || '⚪'} **${t.name}** — ${t.threshold.toLocaleString()} lifetime miles${t.role_id ? ` → <@&${t.role_id}>` : ' (no role set)'}`
       ).join('\n');
 
-      return new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('✈️ LotusMiles Dashboard')
-        .setThumbnail(LOGO)
-        .setDescription('Configure miles earning rates and tier role rewards.')
-        .addFields(
-          { name: '🎫 Miles Per Flight (Economy)', value: `${config.miles_per_flight} mi`, inline: true },
-          { name: '💼 Business Bonus', value: `+${config.miles_per_business_bonus} mi`, inline: true },
-          { name: '\u200b', value: '\u200b', inline: true },
-          { name: '🏆 Tiers & Role Rewards', value: tierLines, inline: false },
+      return new ContainerBuilder()
+        .setAccentColor(color)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# ${title}`),
+              td => td.setContent('Configure miles earning rates and tier role rewards.'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
         )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Click buttons below to configure' })
-        .setTimestamp();
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent([
+          `> **🎫 Miles Per Flight (Economy):** ${config.miles_per_flight} mi`,
+          `> **💼 Business Bonus:** +${config.miles_per_business_bonus} mi`,
+        ].join('\n')))
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`> **🏆 Tiers & Role Rewards**\n${tierLines}`))
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} • Click buttons below to configure`));
     }
 
     function buildRows() {
       const tierButtons = config.tiers.map((t, i) =>
-        new ButtonBuilder().setCustomId(`eco_fftier_${i}`).setLabel(`Edit ${t.name}`).setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId(`ff_tier_${i}`).setLabel(`Edit ${t.name}`).setStyle(ButtonStyle.Primary)
       );
 
       const rows = [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('eco_ffrate').setLabel('Edit Miles Rates').setStyle(ButtonStyle.Secondary).setEmoji('🎫'),
+          new ButtonBuilder().setCustomId('ff_rate').setLabel('Edit Miles Rates').setStyle(ButtonStyle.Secondary).setEmoji('🎫'),
         ),
       ];
 
-      // Tier buttons — max 5 per row
       for (let i = 0; i < tierButtons.length; i += 4) {
         rows.push(new ActionRowBuilder().addComponents(tierButtons.slice(i, i + 4)));
       }
 
       rows.push(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('eco_ffdone').setLabel('Done ✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('ff_done').setLabel('Done ✅').setStyle(ButtonStyle.Success),
       ));
 
       return rows.slice(0, 5);
     }
 
-    const msg = await interaction.editReply({ embeds: [buildEmbed()], components: buildRows() });
+    const msg = await interaction.editReply({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
 
     const collector = msg.createMessageComponentCollector({ time: 300_000, filter: i => i.user.id === interaction.user.id });
 
@@ -76,13 +80,12 @@ module.exports = {
       try {
         const id = i.customId;
 
-        if (id === 'eco_ffdone') {
+        if (id === 'ff_done') {
           collector.stop('done');
-          return await i.update({ embeds: [buildEmbed().setTitle('✅ LotusMiles Config Saved').setColor(0x00B050)], components: [] });
+          return await i.update({ components: [buildContainer('✅ LotusMiles Config Saved', COLORS.success)], flags: MessageFlags.IsComponentsV2 });
         }
 
-        // Edit miles rate
-        if (id === 'eco_ffrate') {
+        if (id === 'ff_rate') {
           const modal = new ModalBuilder().setCustomId('ffrate_modal').setTitle('Edit Miles Rates');
           modal.addComponents(
             new ActionRowBuilder().addComponents(
@@ -103,12 +106,11 @@ module.exports = {
           if (!isNaN(bonus)) config.miles_per_business_bonus = bonus;
 
           await updateFFConfig({ miles_per_flight: config.miles_per_flight, miles_per_business_bonus: config.miles_per_business_bonus });
-          return await submitted.update({ embeds: [buildEmbed()], components: buildRows() });
+          return await submitted.update({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
         }
 
-        // Edit tier
-        if (id.startsWith('eco_fftier_')) {
-          const tierIndex = parseInt(id.replace('eco_fftier_', ''));
+        if (id.startsWith('ff_tier_')) {
+          const tierIndex = parseInt(id.replace('ff_tier_', ''));
           const tier = config.tiers[tierIndex];
 
           const modal = new ModalBuilder().setCustomId(`fftier_modal_${tierIndex}`).setTitle(`Edit ${tier.name} Tier`);
@@ -132,7 +134,7 @@ module.exports = {
           config.tiers[tierIndex].role_id = roleId;
 
           await updateFFConfig({ tiers: config.tiers });
-          return await submitted.update({ embeds: [buildEmbed()], components: buildRows() });
+          return await submitted.update({ components: [buildContainer(), ...buildRows()], flags: MessageFlags.IsComponentsV2 });
         }
       } catch (err) {
         console.error('FF Dashboard error:', err.message);

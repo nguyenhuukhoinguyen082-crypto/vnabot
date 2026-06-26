@@ -1,5 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-require('dotenv').config();
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -29,7 +29,6 @@ module.exports = {
       return interaction.editReply({ content: '❌ `STAFF_ROLE_ID` is not set in the bot config.' });
     }
 
-    // Only server admins can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
       return interaction.editReply({ content: '❌ You need **Manage Roles** permission to use this command.' });
     }
@@ -50,7 +49,6 @@ module.exports = {
     const isAdd = sub === 'add';
     const results = [];
 
-    // Handle user
     if (targetUser) {
       const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
       if (!member) {
@@ -70,7 +68,6 @@ module.exports = {
       }
     }
 
-    // Handle role — add/remove staff role from ALL members with that role
     if (targetRole) {
       try {
         await interaction.guild.members.fetch();
@@ -91,13 +88,15 @@ module.exports = {
       }
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(isAdd ? 0x00B050 : 0xFF0000)
-      .setTitle(isAdd ? '✅ Staff Granted' : '❌ Staff Removed')
-      .setDescription(results.join('\n'))
-      .setFooter({ text: `Action by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(isAdd ? COLORS.success : COLORS.danger)
+      .addTextDisplayComponents(
+        td => td.setContent(isAdd ? '# ✅ Staff Granted' : '# ❌ Staff Removed'),
+        td => td.setContent(results.join('\n')),
+      )
+      .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`-# Action by ${interaction.user.username} • ${FOOTER}`));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

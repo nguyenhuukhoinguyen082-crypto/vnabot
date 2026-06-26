@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const { getRoutes, deleteRoute } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,8 +18,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -45,16 +45,13 @@ module.exports = {
 
     await deleteRoute(route.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🗑️ Route Deleted')
-      .addFields(
-        { name: '🛫 Origin', value: origin, inline: true },
-        { name: '🛬 Destination', value: destination, inline: true },
-      )
-      .setFooter({ text: `Deleted by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(td => td.setContent('# ✈️ Route Deleted'))
+      .addTextDisplayComponents(td => td.setContent(`> **🛫 Origin:** ${origin}`))
+      .addTextDisplayComponents(td => td.setContent(`> **🛬 Destination:** ${destination}`))
+      .addTextDisplayComponents(td => td.setContent('-# Deleted by ' + interaction.user.username + ' • ' + FOOTER));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

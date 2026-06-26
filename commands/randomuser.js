@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,13 +15,19 @@ module.exports = {
 
     const randomMember = members.random();
 
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(td => td.setContent('# 🎲 Random User Selected!'))
+          .setThumbnailAccessory(tb => tb.setURL(randomMember.user.displayAvatarURL({ dynamic: true })))
+      )
+      .addTextDisplayComponents(td => td.setContent(`🎉 **${randomMember.displayName || randomMember.user.username}** has been chosen!`))
+      .addTextDisplayComponents(td => td.setContent('-# Selected from ' + members.size + ' members • ' + FOOTER));
+
     await interaction.editReply({
-      embeds: [new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('🎲 Random User Selected!')
-        .setDescription(`🎉 **${randomMember.displayName || randomMember.user.username}** has been chosen!`)
-        .setThumbnail(randomMember.user.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: `Selected from ${members.size} members • Vietnam Airlines Group | PTFS` })],
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
     });
   },
 };

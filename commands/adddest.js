@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
 const { addDestination } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -21,8 +22,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -34,20 +34,18 @@ module.exports = {
 
     const id = await addDestination({ name, code, image_url: imagelink, description, country });
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ Destination Added')
-      .setImage(imagelink)
-      .addFields(
-        { name: '🌍 Name', value: name, inline: true },
-        { name: '🛬 Code', value: code, inline: true },
-        { name: '🌏 Country', value: country, inline: true },
-        { name: '📝 Description', value: description, inline: false },
-        { name: '🔑 ID', value: `\`${id}\``, inline: false },
-      )
-      .setFooter({ text: `Added by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(
+        td => td.setContent('# ✅ Destination Added'),
+        td => td.setContent(`> **🌍 Name:** ${name}`),
+        td => td.setContent(`> **🛬 Code:** ${code}`),
+        td => td.setContent(`> **🌏 Country:** ${country}`),
+        td => td.setContent(`> **📝 Description:** ${description}`),
+        td => td.setContent(`> **🔑 ID:** \`${id}\``),
+        td => td.setContent(`-# Added by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

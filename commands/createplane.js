@@ -1,9 +1,11 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, TextDisplayBuilder,
   ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ComponentType,
 } = require('discord.js');
 const { addPlane } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 // Real Vietnam Airlines fleet templates
 const TEMPLATES = {
@@ -97,8 +99,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -130,25 +131,22 @@ module.exports = {
 
     const id = await addPlane(planeData);
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ Aircraft Added to Fleet')
-      .addFields(
-        { name: '✈️ Type', value: template.aircraft_type || 'N/A', inline: true },
-        { name: '🏷️ Display Name', value: template.display_name || 'N/A', inline: true },
-        { name: '🔖 Registration', value: `VN-${registration}`, inline: true },
-        { name: '💺 Capacity', value: `${template.passenger_capacity || '?'} seats`, inline: true },
-        { name: '🪑 Config', value: template.seat_config || 'N/A', inline: true },
-        { name: '💼 Business Class', value: template.has_business ? `✅ ${template.business_rows} rows` : '❌ No', inline: true },
-        { name: '🔧 Status', value: status || 'Active', inline: true },
-        { name: '🔑 ID', value: `\`${id}\``, inline: false },
-        { name: '📝 Notes', value: template.notes || template.description || 'N/A', inline: false },
-      )
-      .setFooter({ text: `Added by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(
+        td => td.setContent('# ✅ Aircraft Added to Fleet'),
+        td => td.setContent(`> **✈️ Type:** ${template.aircraft_type || 'N/A'}`),
+        td => td.setContent(`> **🏷️ Display Name:** ${template.display_name || 'N/A'}`),
+        td => td.setContent(`> **🔖 Registration:** VN-${registration}`),
+        td => td.setContent(`> **💺 Capacity:** ${template.passenger_capacity || '?'} seats`),
+        td => td.setContent(`> **🪑 Config:** ${template.seat_config || 'N/A'}`),
+        td => td.setContent(`> **💼 Business Class:** ${template.has_business ? `✅ ${template.business_rows} rows` : '❌ No'}`),
+        td => td.setContent(`> **🔧 Status:** ${status || 'Active'}`),
+        td => td.setContent(`> **🔑 ID:** \`${id}\``),
+        td => td.setContent(`> **📝 Notes:** ${template.notes || template.description || 'N/A'}`),
+        td => td.setContent(`-# Added by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    if (imageUrl) embed.setImage(imageUrl);
-
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

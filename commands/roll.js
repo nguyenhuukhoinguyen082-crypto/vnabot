@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,15 +27,16 @@ module.exports = {
     const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1);
     const total = rolls.reduce((a, b) => a + b, 0) + modifier;
 
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(td => td.setContent(`# 🎲 Dice Roll — ${notation}`))
+      .addTextDisplayComponents(td => td.setContent(`> **Rolls:** ${rolls.join(', ')}`))
+      .addTextDisplayComponents(td => td.setContent(`> **Total:** **${total}**${modifier !== 0 ? ` (${modifier > 0 ? '+' : ''}${modifier} modifier)` : ''}`))
+      .addTextDisplayComponents(td => td.setContent('-# ' + FOOTER));
+
     await interaction.reply({
-      embeds: [new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`🎲 Dice Roll — ${notation}`)
-        .addFields(
-          { name: 'Rolls', value: rolls.join(', '), inline: false },
-          { name: 'Total', value: `**${total}**${modifier !== 0 ? ` (${modifier > 0 ? '+' : ''}${modifier} modifier)` : ''}`, inline: false },
-        )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
     });
   },
 };

@@ -5,6 +5,12 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+const { handleWelcome } = require('./handlers/welcome');
+const { handleBoost } = require('./handlers/boost');
+const { handleApplication } = require('./handlers/applications');
+const { checkBirthdays } = require('./services/birthdayChecker');
+const { handleBookingButton, handleClassSelect } = require('./handlers/bookingFlow');
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -19,7 +25,7 @@ client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
-const SKIP_FILES = ['seatmap.js'];
+const SKIP_FILES = ['seatmap.js', 'ffhelper.js'];
 
 const commandsData = [];
 for (const file of commandFiles) {
@@ -35,14 +41,14 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('📡 Registering slash commands...');
+    console.log('[INIT] Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: commandsData }
     );
-    console.log('✅ Slash commands registered!');
+    console.log('[OK] Slash commands registered!');
   } catch (err) {
-    console.error('❌ Failed to register commands:', err);
+    console.error('[ERR] Failed to register commands:', err);
   }
 })();
 
@@ -56,7 +62,7 @@ client.on('interactionCreate', async (interaction) => {
       await command.execute(interaction, client);
     } catch (err) {
       console.error(`Error in /${interaction.commandName}:`, err);
-      const msg = { content: '❌ An error occurred.', ephemeral: true };
+      const msg = { content: '> An error occurred.', ephemeral: true };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(msg).catch(() => {});
       } else {
@@ -70,8 +76,10 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     const id = interaction.customId;
 
-    // ── ALL collector-managed buttons — let the command's own collector handle them
-    if (id.startsWith('bk_'))       return; // book.js seat map
+    // -- ALL collector-managed buttons -- let the command's own collector handle them
+    if (id.startsWith('bk_'))       return; // book.js seat map / bookingFlow.js seat map
+    if (id.startsWith('ann_book_')) return await handleBookingButton(interaction, client); // bookingFlow.js
+    if (id.startsWith('ann_cls:'))  return await handleClassSelect(interaction, client);   // bookingFlow.js
     if (id.startsWith('fl_'))       return; // fleet.js
     if (id.startsWith('dest_'))     return; // destinations.js
     if (id.startsWith('route_'))    return; // routes.js
@@ -84,121 +92,68 @@ client.on('interactionCreate', async (interaction) => {
     if (id.startsWith('ci_'))       return; // checkin.js
     if (id === 'help_category')     return; // help.js
     if (id === 'cf_aircraft')       return; // createflight.js
-    if (id === 'deal_prev' || id === 'deal_next' || id.startsWith('deal_book_post')) return; // deals.js
+    if (id.startsWith('cf_config_')) { // createflight.js -- class pricing modal
+      const flightId = id.replace('cf_config_', '');
+      const { ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, TextDisplayBuilder } = require('discord.js');
+      const { CLASS_CONFIG } = require('./config');
 
-    // ── postflight how-to-book button ─────────────────────────────────────────
-    // ── Application Accept/Reject buttons ─────────────────────────────────────
-    if (id.startsWith('appaccept_') || id.startsWith('appreject_')) {
-      const staffRoleId = process.env.STAFF_ROLE_ID;
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-        return interaction.reply({ content: '❌ Only staff can review applications.', ephemeral: true });
-      }
+      const modal = new ModalBuilder()
+        .setCustomId(`cf_modal_${flightId}`)
+        .setTitle('Configure Class Pricing');
 
-      const isAccept = id.startsWith('appaccept_');
-      const appId = id.replace('appaccept_', '').replace('appreject_', '');
-
-      const { getApplication, updateApplication, getApplicationType } = require('./firebase');
-      const app = await getApplication(appId);
-      if (!app) return interaction.reply({ content: '❌ Application not found.', ephemeral: true });
-      if (app.status !== 'pending') return interaction.reply({ content: `⚠️ This application is already **${app.status}**.`, ephemeral: true });
-
-      if (isAccept) {
-        // Accept flow
-        await updateApplication(appId, { status: 'accepted', reviewed_by: interaction.user.id, reviewed_at: Date.now() });
-
-        // Auto-assign role if configured
-        const appType = await getApplicationType(app.type_id);
-        let roleGranted = false;
-        if (appType?.role_id) {
-          try {
-            const member = await interaction.guild.members.fetch(app.discord_id).catch(() => null);
-            if (member) { await member.roles.add(appType.role_id); roleGranted = true; }
-          } catch (err) { console.error('Role grant failed:', err.message); }
-        }
-
-        // Update embed to show accepted
-        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-        const accepted = EmbedBuilder.from(interaction.message.embeds[0])
-          .setColor(0x00B050)
-          .setTitle(`✅ ACCEPTED — ${app.type_title}`)
-          .addFields({ name: '✅ Reviewed By', value: `<@${interaction.user.id}>`, inline: true });
-
-        await interaction.update({ embeds: [accepted], components: [] });
-
-        // DM applicant
-        try {
-          const user = await interaction.client.users.fetch(app.discord_id);
-          await user.send({
-            embeds: [new EmbedBuilder()
-              .setColor(0x00B050)
-              .setTitle('🎉 Application Accepted!')
-              .setThumbnail('https://i.postimg.cc/SRMftcKS/vna.jpg')
-              .setDescription(`Congratulations! Your application for **${app.type_title}** at **Vietnam Airlines Group | PTFS** has been **accepted**!`)
-              .addFields(
-                { name: '🎖️ Role Granted', value: roleGranted ? `<@&${appType.role_id}>` : 'Staff will assign your role shortly.', inline: false },
-              )
-              .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-              .setTimestamp()],
-          }).catch(() => {});
-        } catch {}
-
-      } else {
-        // Reject flow — ask for reason via modal
-        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder: AR } = require('discord.js');
-        const modal = new ModalBuilder().setCustomId(`appreject_reason_${appId}`).setTitle('Rejection Reason');
-        modal.addComponents(
-          new AR().addComponents(
-            new TextInputBuilder().setCustomId('reason').setLabel('Reason for rejection').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)
-          )
+      // 3 cost inputs (3 Labels)
+      for (const cls of ['economy', 'premium_economy', 'business']) {
+        const def = CLASS_CONFIG[cls];
+        modal.addLabelComponents(
+          new LabelBuilder()
+            .setLabel(`${def.emoji} ${def.label} Cost`)
+            .setTextInputComponent(
+              new TextInputBuilder()
+                .setCustomId(`cf_cost_${cls}`)
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder(`Default: ${def.cost}`)
+                .setValue(String(def.cost))
+                .setRequired(true)
+                .setMinLength(1)
+                .setMaxLength(10)
+            )
         );
-        await interaction.showModal(modal);
-
-        const submitted = await interaction.awaitModalSubmit({
-          time: 120_000,
-          filter: m => m.user.id === interaction.user.id && m.customId === `appreject_reason_${appId}`,
-        }).catch(() => null);
-
-        if (!submitted) return;
-        const reason = submitted.fields.getTextInputValue('reason');
-
-        await updateApplication(appId, { status: 'rejected', reviewed_by: interaction.user.id, reviewed_at: Date.now(), rejection_reason: reason });
-
-        const { EmbedBuilder } = require('discord.js');
-        const rejected = EmbedBuilder.from(interaction.message.embeds[0])
-          .setColor(0xFF0000)
-          .setTitle(`❌ REJECTED — ${app.type_title}`)
-          .addFields(
-            { name: '❌ Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
-            { name: '📝 Reason', value: reason, inline: false },
-          );
-
-        await submitted.update({ embeds: [rejected], components: [] });
-
-        // DM applicant with reason
-        try {
-          const user = await interaction.client.users.fetch(app.discord_id);
-          await user.send({
-            embeds: [new EmbedBuilder()
-              .setColor(0xFF0000)
-              .setTitle('❌ Application Not Successful')
-              .setThumbnail('https://i.postimg.cc/SRMftcKS/vna.jpg')
-              .setDescription(`Thank you for applying for **${app.type_title}** at **Vietnam Airlines Group | PTFS**.\n\nUnfortunately, your application was not successful at this time.`)
-              .addFields(
-                { name: '📝 Reason', value: reason, inline: false },
-                { name: '🔄 Re-apply', value: 'You may re-apply after 24 hours.', inline: false },
-              )
-              .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-              .setTimestamp()],
-          }).catch(() => {});
-        } catch {}
       }
+
+      // 1 combined roles field (1 Label)
+      modal.addLabelComponents(
+        new LabelBuilder()
+          .setLabel('Role IDs (one per line)')
+          .setDescription('Format: class:role_id per line. Empty = no perk.')
+          .setTextInputComponent(
+            new TextInputBuilder()
+              .setCustomId('cf_roles')
+              .setStyle(TextInputStyle.Paragraph)
+              .setPlaceholder('economy:123\npremium_economy:456\nbusiness:789')
+              .setRequired(false)
+              .setMaxLength(200)
+          )
+      );
+
+      // 1 TextDisplay for context (5th component)
+      modal.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent('-# Prices in VND. Role IDs give free booking for that class.')
+      );
+
+      await interaction.showModal(modal);
       return;
     }
+    if (id === 'deal_prev' || id === 'deal_next' || id.startsWith('deal_book_post')) return; // deals.js
 
-    // ── Welcome message "Book a Flight" button ────────────────────────────────
+    // ── Application Accept/Reject buttons ─────────────────────────────────────
+    if (id.startsWith('appaccept_') || id.startsWith('appreject_')) {
+      return await handleApplication(interaction);
+    }
+
+    // -- Welcome message "Book a Flight" button --
     if (id === 'welcome_book') {
       return interaction.reply({
-        content: '🎫 Use `/flights` to see what\'s scheduled, then `/book flight [flightnumber] [class]` to book your seat!',
+        content: '> Use `/flights` to see what\'s scheduled, then `/book flight [flightnumber] [class]` to book your seat!',
         ephemeral: true,
       }).catch(() => {});
     }
@@ -207,12 +162,12 @@ client.on('interactionCreate', async (interaction) => {
       const flightNumber = id.replace('howtobook_', '').replace('quickbook_', '');
       return interaction.reply({
         content: [
-          `## 🎫 How to Book Flight **${flightNumber}**`,
+          `## How to Book Flight **${flightNumber}**`,
           `Type this command in any channel:`,
           `\`/book flight flightnumber:${flightNumber} class:economy\``,
           '',
-          '> 💺 Change `class:economy` to `class:business` for Business Class',
-          '> 🗺️ You will then see an interactive seat map to pick your seat!',
+          '> Change `class:economy` to `class:business` for Business Class',
+          '> You will then see an interactive seat map to pick your seat!',
         ].join('\n'),
         ephemeral: true,
       }).catch(() => {});
@@ -220,14 +175,14 @@ client.on('interactionCreate', async (interaction) => {
 
     if (id.startsWith('deal_book_')) {
       return interaction.reply({
-        content: '> 🎫 Use `/book flight` to book! Check `/flights` for available flight numbers.',
+        content: '> Use `/book flight` to book! Check `/flights` for available flight numbers.',
         ephemeral: true,
       }).catch(() => {});
     }
 
     if (id === 'browse_deals') {
       return interaction.reply({
-        content: '> 🏷️ Use `/deals` to browse all current deals!',
+        content: '> Use `/deals` to browse all current deals!',
         ephemeral: true,
       }).catch(() => {});
     }
@@ -238,12 +193,12 @@ client.on('interactionCreate', async (interaction) => {
         const { rsvpEvent } = require('./firebase');
         const result = await rsvpEvent(eventId, interaction.user.id, interaction.user.username);
         if (result === 'already') {
-          return interaction.reply({ content: `⚠️ You've already RSVP'd to this event!`, ephemeral: true });
+          return interaction.reply({ content: `> You've already RSVP'd to this event!`, ephemeral: true });
         }
-        return interaction.reply({ content: `✅ RSVP confirmed! See you at the event! ✈️`, ephemeral: true });
+        return interaction.reply({ content: '> RSVP confirmed! See you at the event.', ephemeral: true });
       } catch (err) {
         console.error('RSVP error:', err);
-        return interaction.reply({ content: '❌ Failed to RSVP. Try `/rsvp` instead.', ephemeral: true }).catch(() => {});
+        return interaction.reply({ content: '> Failed to RSVP. Try `/rsvp` instead.', ephemeral: true }).catch(() => {});
       }
     }
 
@@ -252,179 +207,80 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.deferUpdate().catch(() => {});
     }
   }
-});
 
-// ── Birthday Checker — runs once a day, posts to configured channel ──────────
-async function checkBirthdays() {
-  try {
-    const { getBirthdays, getBirthdayConfig, updateBirthdayConfig } = require('./firebase');
-    const config = await getBirthdayConfig();
-    if (!config.channel_id) return;
+  // ── Modal Submits ──────────────────────────────────────────────────────
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith('cf_modal_')) {
+      const { setFlightClasses, getFlight } = require('./firebase');
+      const flightId = interaction.customId.replace('cf_modal_', '');
+      const flight = await getFlight(flightId);
 
-    const today = new Date();
-    const day = today.getDate();
-    const month = today.getMonth() + 1;
-    const dateKey = `${month}-${day}`;
-    const lastAnnounced = config.last_announced || {};
+      const classes = {};
+      for (const cls of ['economy', 'premium_economy', 'business']) {
+        const raw = interaction.fields.getTextInputValue(`cf_cost_${cls}`);
+        const cost = parseInt(raw) || 0;
+        if (cost > 0) {
+          classes[cls] = { cost };
+        }
+      }
 
-    if (lastAnnounced[dateKey]) return; // already posted today
+      // Parse role IDs
+      const rolesRaw = interaction.fields.getTextInputValue('cf_roles');
+      if (rolesRaw) {
+        for (const line of rolesRaw.split('\n')) {
+          const [cls, roleId] = line.trim().split(':');
+          if (cls && roleId && classes[cls]) {
+            classes[cls].role_id = roleId.trim();
+          }
+        }
+      }
 
-    const birthdays = await getBirthdays();
-    const todaysBirthdays = birthdays.filter(b => b.day === day && b.month === month);
+      // Merge with CLASS_CONFIG defaults
+      const { CLASS_CONFIG } = require('./config');
+      for (const cls of ['economy', 'premium_economy', 'business']) {
+        if (classes[cls]) {
+          classes[cls] = { ...CLASS_CONFIG[cls], ...classes[cls] };
+        }
+      }
 
-    if (!todaysBirthdays.length) return;
+      await setFlightClasses(flightId, classes);
 
-    const channel = await client.channels.fetch(config.channel_id).catch(() => null);
-    if (!channel) return;
+      const { MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
+      const { COLORS, FOOTER } = require('./config');
 
-    const { EmbedBuilder } = require('discord.js');
-    const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
-
-    for (const b of todaysBirthdays) {
-      const embed = new EmbedBuilder()
-        .setColor(0xC4972A)
-        .setTitle('🎉 Happy Birthday!')
-        .setThumbnail(LOGO)
-        .setDescription(`🎂 Everyone wish <@${b.discord_id}> a very happy birthday today! 🎈`)
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
-      await channel.send({ content: `<@${b.discord_id}>`, embeds: [embed] }).catch(() => {});
+      await interaction.reply({
+        components: [
+          new ContainerBuilder()
+            .setAccentColor(COLORS.success)
+            .addTextDisplayComponents(td => td.setContent('# ✅ Class Pricing Configured'))
+            .addTextDisplayComponents(td => td.setContent([
+              `**Flight:** ${flight?.flight_number || flightId}`,
+            ...Object.entries(classes).map(([k, v]) =>
+              `> ${v.emoji || '•'} **${v.label}** - ${(v.cost || 0).toLocaleString()}₫${v.role_id ? ' · <@&' + v.role_id + '>' : ''}`
+            ),
+            ].join('\n')))
+            .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`))
+        ],
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      });
+      return;
     }
-
-    await updateBirthdayConfig({ last_announced: { ...lastAnnounced, [dateKey]: true } });
-  } catch (err) {
-    console.error('Birthday check failed:', err.message);
   }
-}
+});
 
 // ── Welcome New Members ───────────────────────────────────────────────────────
-client.on('guildMemberAdd', async (member) => {
-  try {
-    const { getWelcomeConfig } = require('./firebase');
-    const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-    const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
-
-    const config = await getWelcomeConfig();
-    if (!config.channel_id) return; // Not set up yet
-
-    // Auto-assign role
-    if (config.role_id) {
-      await member.roles.add(config.role_id).catch(err => {
-        console.error('Welcome role assignment failed:', err.message);
-      });
-    }
-
-    const memberCount = member.guild.memberCount;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('🇻🇳 Welcome to Vietnam Airlines Group | PTFS!')
-      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }) || LOGO)
-      .setDescription([
-        `👋 Welcome aboard, <@${member.id}>!`,
-        '',
-        `We're thrilled to have you join **Vietnam Airlines Group | PTFS** — *Sải Cánh Vươn Cao*.`,
-        `You're our **${memberCount.toLocaleString()}** member!`,
-        '',
-        'Use the buttons below to get started, and `/help` any time to see all bot commands.',
-      ].join('\n'))
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
-
-    const row = new ActionRowBuilder();
-    if (config.rules_url) {
-      row.addComponents(new ButtonBuilder().setLabel('📋 Rules').setStyle(ButtonStyle.Link).setURL(config.rules_url));
-    }
-    if (config.handbook_url) {
-      row.addComponents(new ButtonBuilder().setLabel('📖 Handbook').setStyle(ButtonStyle.Link).setURL(config.handbook_url));
-    }
-    row.addComponents(
-      new ButtonBuilder().setCustomId('welcome_book').setLabel('✈️ Book a Flight').setStyle(ButtonStyle.Success),
-    );
-
-    // Post in welcome channel
-    const channel = await client.channels.fetch(config.channel_id).catch(() => null);
-    if (channel) {
-      await channel.send({
-        content: `<@${member.id}>`,
-        embeds: [embed],
-        components: row.components.length ? [row] : [],
-      }).catch(() => {});
-    }
-
-    // DM the new member
-    if (config.dm_enabled) {
-      const dmEmbed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('🇻🇳 Welcome to Vietnam Airlines Group | PTFS!')
-        .setThumbnail(LOGO)
-        .setDescription([
-          `Hey ${member.user.username}! 👋`,
-          '',
-          `Thanks for joining **Vietnam Airlines Group | PTFS**. Here's how to get started:`,
-          '',
-          '✈️ Use `/flights` to see what\'s currently scheduled',
-          '🎫 Use `/book flight` to book your first flight with an interactive seat map',
-          '📖 Use `/help` any time to browse all commands',
-          '',
-          config.rules_url ? `📋 Please read the rules: ${config.rules_url}` : '',
-          config.handbook_url ? `📖 Full guide: ${config.handbook_url}` : '',
-        ].filter(Boolean).join('\n'))
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
-
-      await member.send({ embeds: [dmEmbed] }).catch(() => {
-        console.log(`Could not DM new member ${member.user.username} — DMs likely closed.`);
-      });
-    }
-  } catch (err) {
-    console.error('Welcome handler error:', err.message);
-  }
-});
+client.on('guildMemberAdd', (member) => { handleWelcome(member); });
 
 
-client.on('guildMemberUpdate', async (oldMember, newMember) => {
-  try {
-    const oldBoostedAt = oldMember.premiumSinceTimestamp;
-    const newBoostedAt = newMember.premiumSinceTimestamp;
-
-    // Member just started boosting (wasn't boosting before, is now)
-    if (!oldBoostedAt && newBoostedAt) {
-      const { EmbedBuilder } = require('discord.js');
-      const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
-
-      const channelId = process.env.BOOST_CHANNEL_ID;
-      const channel = channelId
-        ? await client.channels.fetch(channelId).catch(() => null)
-        : newMember.guild.systemChannel;
-
-      if (!channel) return;
-
-      const boostCount = newMember.guild.premiumSubscriptionCount || 0;
-
-      const embed = new EmbedBuilder()
-        .setColor(0xFF73FA)
-        .setTitle('🚀 Thank You for Boosting!')
-        .setThumbnail(LOGO)
-        .setDescription(`💖 <@${newMember.id}> just boosted **Vietnam Airlines Group | PTFS**! Thank you so much for your support!`)
-        .addFields({ name: '✨ Total Server Boosts', value: `${boostCount}`, inline: true })
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
-
-      await channel.send({ content: `<@${newMember.id}>`, embeds: [embed] }).catch(() => {});
-    }
-  } catch (err) {
-    console.error('Boost handler error:', err.message);
-  }
-});
+// ── Boost Detection ───────────────────────────────────────────────────────────
+client.on('guildMemberUpdate', (oldMember, newMember) => { handleBoost(oldMember, newMember); });
 
 client.once('ready', () => {
-  console.log(`✅ Vietnam Airlines Group | PTFS Bot is online as ${client.user.tag}`);
+  console.log(`[READY] Vietnam Airlines Group | PTFS Bot is online as ${client.user.tag}`);
   client.user.setActivity('Vietnam Airlines Group | PTFS | /help', { type: 0 });
 
-  // Check birthdays on startup, then every 6 hours
-  checkBirthdays();
-  setInterval(checkBirthdays, 6 * 60 * 60 * 1000);
+  checkBirthdays(client);
+  setInterval(() => checkBirthdays(client), 6 * 60 * 60 * 1000);
 });
 
 client.login(process.env.DISCORD_TOKEN);

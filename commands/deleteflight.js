@@ -1,8 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
 const { getFlight, deleteFlight, getBookings, deleteFlightBookings, getEvents, deleteEvent } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,21 +14,20 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission to use this command.' });
     }
 
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
     const confirm = interaction.options.getBoolean('confirm');
 
     if (!confirm) {
-      return interaction.editReply({ content: '⚠️ Set `confirm` to `true` to permanently delete this flight. This cannot be undone — unlike `/cancelflight`, this removes it from the database entirely.' });
+      return interaction.editReply({ content: '> Set `confirm` to `true` to permanently delete this flight. This cannot be undone — unlike `/cancelflight`, this removes it from the database entirely.' });
     }
 
     const flight = await getFlight(flightNumber);
     if (!flight) {
-      return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found.` });
+      return interaction.editReply({ content: `> Flight **${flightNumber}** not found.` });
     }
 
     // Count bookings that will be removed
@@ -64,20 +62,18 @@ module.exports = {
     // Delete the flight itself
     await deleteFlight(flight.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🗑️ Flight Permanently Deleted')
-      .setThumbnail(LOGO)
-      .addFields(
-        { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${flight.origin || 'N/A'} → ${flight.destination || 'N/A'}`, inline: true },
-        { name: '🎫 Bookings Removed', value: `${bookings.length}`, inline: true },
-        { name: '📅 Linked Event', value: linkedEvent ? '✅ Removed from database' : 'None found', inline: true },
-        { name: '🔗 Discord Event', value: linkedEvent?.discord_event_id ? (discordEventDeleted ? '✅ Also deleted from Discord' : '⚠️ Could not delete from Discord') : 'N/A', inline: true },
-      )
-      .setFooter({ text: `Deleted by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(
+        td => td.setContent('# Flight Permanently Deleted'),
+        td => td.setContent(`> **✈️ Flight:** ${flightNumber}`),
+        td => td.setContent(`> **🛩️ Route:** ${flight.origin || 'N/A'} → ${flight.destination || 'N/A'}`),
+        td => td.setContent(`> **Bookings Removed:** ${bookings.length}`),
+        td => td.setContent(`> **Linked Event:** ${linkedEvent ? 'Removed from database' : 'None found'}`),
+        td => td.setContent(`> **Discord Event:** ${linkedEvent?.discord_event_id ? (discordEventDeleted ? 'Also deleted from Discord' : 'Could not delete from Discord') : 'N/A'}`),
+        td => td.setContent(`-# Deleted by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

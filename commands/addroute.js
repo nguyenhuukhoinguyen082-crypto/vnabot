@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
 const { addRoute } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,8 +24,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -44,20 +44,18 @@ module.exports = {
       distance,
     });
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ Route Added')
-      .setImage(originImage)
-      .addFields(
-        { name: '🛫 Origin', value: origin, inline: true },
-        { name: '🛬 Destination', value: destination, inline: true },
-        { name: '⏱️ Duration', value: duration || 'N/A', inline: true },
-        { name: '📏 Distance', value: distance ? `${distance} nm` : 'N/A', inline: true },
-        { name: '🔑 Route ID', value: `\`${id}\``, inline: false },
-      )
-      .setFooter({ text: `Added by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(
+        td => td.setContent('# ✅ Route Added'),
+        td => td.setContent(`> **🛫 Origin:** ${origin}`),
+        td => td.setContent(`> **🛬 Destination:** ${destination}`),
+        td => td.setContent(`> **⏱️ Duration:** ${duration || 'N/A'}`),
+        td => td.setContent(`> **📏 Distance:** ${distance ? `${distance} nm` : 'N/A'}`),
+        td => td.setContent(`> **🔑 Route ID:** \`${id}\``),
+        td => td.setContent(`-# Added by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

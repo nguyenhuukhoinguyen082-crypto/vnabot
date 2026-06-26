@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const { getFlight, updateFlight, deleteFlightBookings } = require('../firebase');
-require('dotenv').config();
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
+const { getFlight, updateFlight, getBookings, deleteFlightBookings } = require('../firebase');
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,8 +14,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -25,27 +25,49 @@ module.exports = {
       return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found.` });
     }
 
+    // Fetch bookings before deleting so we can notify passengers
+    const bookings = await getBookings(flight.id);
+
     // Close bookings and mark as ended
     await updateFlight(flight.id, { status: 'ended', bookings_open: false });
 
     // Delete all bookings for this flight
     await deleteFlightBookings(flight.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0x888888)
-      .setTitle('🛬 Flight Ended')
-      .addFields(
-        { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${flight.origin} → ${flight.destination}`, inline: true },
-        { name: '📋 Status', value: '🛬 Ended', inline: true },
-        {
-          name: '\u200b',
-          value: '> All bookings for this flight have been **deleted**.\n> Bookings are now **closed**.',
-        },
-      )
-      .setFooter({ text: `Ended by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    // Notify each passenger about the cancellation
+    let notified = 0;
+    for (const booking of bookings) {
+      try {
+        const passenger = await interaction.client.users.fetch(booking.discord_id).catch(() => null);
+        if (passenger) {
+          const dmContainer = new ContainerBuilder()
+            .setAccentColor(COLORS.danger)
+            .addTextDisplayComponents(
+              td => td.setContent('# ✈️ Flight Cancelled'),
+              td => td.setContent(`Your booking on flight **${flightNumber}** has been cancelled because the flight has ended.`),
+              td => td.setContent(`> **✈️ Flight:** ${flightNumber}`),
+              td => td.setContent(`> **💺 Seat:** ${booking.seat || 'N/A'}`),
+              td => td.setContent(`> **🛩️ Route:** ${flight.origin} ✈️ ${flight.destination}`),
+              td => td.setContent(`-# ${FOOTER}`),
+            );
+          await passenger.send({ components: [dmContainer], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
+          notified++;
+        }
+      } catch { /* skip if DM fails */ }
+    }
 
-    await interaction.editReply({ embeds: [embed] });
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.neutral)
+      .addTextDisplayComponents(
+        td => td.setContent('# 🛬 Flight Ended'),
+        td => td.setContent(`> **✈️ Flight:** ${flightNumber}`),
+        td => td.setContent(`> **🛩️ Route:** ${flight.origin} → ${flight.destination}`),
+        td => td.setContent(`> **📋 Status:** 🛬 Ended`),
+        td => td.setContent(`> All bookings for this flight have been **deleted**.`),
+        td => td.setContent(`> Bookings are now **closed**.`),
+        td => td.setContent(`-# ${notified} passenger(s) notified • Ended by ${interaction.user.username} • ${FOOTER}`),
+      );
+
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

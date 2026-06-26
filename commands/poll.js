@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 const NUMBER_EMOJIS = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
 
@@ -20,14 +21,13 @@ module.exports = {
 
     const description = options.map((opt, i) => `${NUMBER_EMOJIS[i]} ${opt}`).join('\n');
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle(`📊 ${question}`)
-      .setDescription(description)
-      .setFooter({ text: `Poll by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(td => td.setContent(`# 📊 ${question}`))
+      .addTextDisplayComponents(td => td.setContent(description))
+      .addTextDisplayComponents(td => td.setContent('-# Poll by ' + interaction.user.username + ' • ' + FOOTER));
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     const msg = await interaction.fetchReply();
 
     for (let i = 0; i < options.length; i++) {

@@ -1,16 +1,14 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
 const { db } = require('../firebase');
 const { ref, push, set } = require('firebase/database');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('suggest')
     .setDescription('Submit a suggestion for Vietnam Airlines Group | PTFS')
     .addStringOption(opt => opt.setName('suggestion').setDescription('Your suggestion').setRequired(true))
-    .addStringOption(opt => opt.setName('channel').setDescription('Suggestions channel ID (leave empty for current channel)').setRequired(false)),
+    .addStringOption(opt => opt.setName('channel').setDescription('Suggestions channel ID (leave empty for current)').setRequired(false)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -28,20 +26,24 @@ module.exports = {
       targetChannel = interaction.channel;
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('💡 New Suggestion')
-      .setDescription(suggestion)
-      .setThumbnail(LOGO)
-      .setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL({ dynamic: true }) })
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao • React below to vote!' })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(
+            td => td.setContent('# 💡 New Suggestion'),
+            td => td.setContent(`Submitted by **${interaction.user.username}**`),
+            td => td.setContent(suggestion),
+          )
+          .setThumbnailAccessory(tb => tb.setURL(interaction.user.displayAvatarURL({ dynamic: true })))
+      )
+      .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} • React below to vote!`));
 
-    const msg = await targetChannel.send({ embeds: [embed] });
+    const msg = await targetChannel.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
     await msg.react('👍').catch(() => {});
     await msg.react('👎').catch(() => {});
 
-    // Log to Firebase for staff tracking
     const newRef = push(ref(db, 'suggestions'));
     await set(newRef, {
       discord_id: interaction.user.id,

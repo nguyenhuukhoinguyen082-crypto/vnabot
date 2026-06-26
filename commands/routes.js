@@ -1,4 +1,17 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  MessageFlags,
+  ContainerBuilder,
+  SectionBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+} = require('discord.js');
+const { LOGO, FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 const { getRoutes } = require('../firebase');
 
 module.exports = {
@@ -9,41 +22,76 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
     const routes = await getRoutes();
-    if (!routes.length) return interaction.editReply({ content: '🗺️ No routes available yet.' });
+    if (!routes.length) return interaction.editReply({ content: '❌ No routes available yet.' });
 
     let page = 0;
     const total = routes.length;
 
-    function buildEmbed(index) {
+    function buildRouteCard(index) {
       const route = routes[index];
       const origin = route.origin || route.from || 'N/A';
       const dest = route.destination || route.to || 'N/A';
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`✈️ ${origin} → ${dest}`)
-        .addFields(
-          { name: '🛫 Origin', value: origin, inline: true },
-          { name: '🛬 Destination', value: dest, inline: true },
-          { name: '📋 Status', value: route.status || 'Active', inline: true },
-          { name: '⏱️ Duration', value: route.duration || 'N/A', inline: true },
-          { name: '📏 Distance', value: route.distance ? `${route.distance} nm` : 'N/A', inline: true },
-        )
-        .setFooter({ text: `Route ${index + 1} of ${total} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-        .setTimestamp();
-      if (route.origin_image) embed.setImage(route.origin_image);
-      return embed;
-    }
+      const isFirst = index === 0;
+      const isLast = index === total - 1;
 
-    function buildRow(index) {
-      return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('route_prev').setLabel('◀ Previous').setStyle(ButtonStyle.Secondary).setDisabled(index === 0),
-        new ButtonBuilder().setCustomId('route_next').setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(index === total - 1),
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary);
+
+      if (route.origin_image) {
+        container.addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(td => td.setContent(`# ✈️ ${origin} → ${dest}`))
+            .setThumbnailAccessory(tb => tb.setURL(route.origin_image))
+        );
+      } else {
+        container.addTextDisplayComponents(td => td.setContent(`# ✈️ ${origin} → ${dest}`));
+      }
+
+      container.addSeparatorComponents(sep =>
+        sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
       );
+
+      container.addTextDisplayComponents(td =>
+        td.setContent(
+          [
+            `> **🛫 Origin:** ${origin}`,
+            `> **🛬 Destination:** ${dest}`,
+            `> **📋 Status:** ${route.status || 'Active'}`,
+            `> **⏱️ Duration:** ${route.duration || 'N/A'}`,
+            `> **📏 Distance:** ${route.distance ? `${route.distance} nm` : 'N/A'}`,
+          ].join('\n')
+        )
+      );
+
+      container.addSeparatorComponents(sep =>
+        sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+      );
+
+      container.addTextDisplayComponents(td =>
+        td.setContent(`-# Route ${index + 1} of ${total} • ${FOOTER}`)
+      );
+
+      container.addActionRowComponents(row =>
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId('route_prev')
+            .setLabel('◀ Previous')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(isFirst),
+          new ButtonBuilder()
+            .setCustomId('route_next')
+            .setLabel('Next ▶')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(isLast),
+        )
+      );
+
+      return [container];
     }
 
     const msg = await interaction.editReply({
-      embeds: [buildEmbed(page)],
-      components: total > 1 ? [buildRow(page)] : [],
+      components: buildRouteCard(page),
+      flags: MessageFlags.IsComponentsV2,
     });
 
     if (total <= 1) return;
@@ -58,12 +106,17 @@ module.exports = {
       try {
         if (btn.customId === 'route_prev') page = Math.max(0, page - 1);
         if (btn.customId === 'route_next') page = Math.min(total - 1, page + 1);
-        await btn.update({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+        await btn.update({
+          components: buildRouteCard(page),
+          flags: MessageFlags.IsComponentsV2,
+        });
       } catch (err) {
         console.error('Routes collector error:', err.message);
       }
     });
 
-    collector.on('end', () => { interaction.editReply({ components: [] }).catch(() => {}); });
+    collector.on('end', () => {
+      interaction.editReply({ components: [] }).catch(() => {});
+    });
   },
 };

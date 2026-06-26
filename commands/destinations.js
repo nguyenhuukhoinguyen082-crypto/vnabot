@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 const { getDestinations } = require('../firebase');
 
 module.exports = {
@@ -14,32 +15,56 @@ module.exports = {
     let page = 0;
     const total = destinations.length;
 
-    function buildEmbed(index) {
+    function buildPage(index) {
       const dest = destinations[index];
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`🌍 ${dest.name || 'Destination'}`)
-        .setDescription(dest.description || 'No description available.')
-        .addFields(
-          { name: '🛬 Airport Code', value: dest.code || 'N/A', inline: true },
-          { name: '🌏 Country', value: dest.country || 'N/A', inline: true },
-        )
-        .setFooter({ text: `Destination ${index + 1} of ${total} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-        .setTimestamp();
-      if (dest.image_url) embed.setImage(dest.image_url);
-      return embed;
-    }
 
-    function buildRow(index) {
-      return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('dest_prev').setLabel('◀ Previous').setStyle(ButtonStyle.Secondary).setDisabled(index === 0),
-        new ButtonBuilder().setCustomId('dest_next').setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(index === total - 1),
-      );
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary);
+
+      if (dest.image_url) {
+        container.addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# 🌍 ${dest.name || 'Destination'}`),
+              td => td.setContent(dest.description || 'No description available.'),
+              td => td.setContent(`> **🛬 Airport Code:** ${dest.code || 'N/A'}\n> **🌏 Country:** ${dest.country || 'N/A'}`),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(dest.image_url))
+        );
+      } else {
+        container.addTextDisplayComponents(
+          td => td.setContent(`# 🌍 ${dest.name || 'Destination'}`),
+          td => td.setContent(dest.description || 'No description available.'),
+          td => td.setContent(`> **🛬 Airport Code:** ${dest.code || 'N/A'}\n> **🌏 Country:** ${dest.country || 'N/A'}`),
+        );
+      }
+
+      container
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td =>
+          td.setContent(`-# Destination ${index + 1} of ${total} · ${FOOTER}`)
+        )
+        .addActionRowComponents(row =>
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId('dest_prev')
+              .setLabel('◀ Previous')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(index === 0),
+            new ButtonBuilder()
+              .setCustomId('dest_next')
+              .setLabel('Next ▶')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(index === total - 1),
+          )
+        );
+
+      return [container];
     }
 
     const msg = await interaction.editReply({
-      embeds: [buildEmbed(page)],
-      components: total > 1 ? [buildRow(page)] : [],
+      components: buildPage(page),
+      flags: MessageFlags.IsComponentsV2,
     });
 
     if (total <= 1) return;
@@ -54,7 +79,7 @@ module.exports = {
       try {
         if (btn.customId === 'dest_prev') page = Math.max(0, page - 1);
         if (btn.customId === 'dest_next') page = Math.min(total - 1, page + 1);
-        await btn.update({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+        await btn.update({ components: buildPage(page), flags: MessageFlags.IsComponentsV2 });
       } catch (err) {
         console.error('Destinations collector error:', err.message);
       }

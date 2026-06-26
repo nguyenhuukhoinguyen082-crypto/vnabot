@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 const CRIMES = [
   'Smuggling duty-free goods past customs',
@@ -25,12 +26,24 @@ module.exports = {
     const bounty = (Math.floor(Math.random() * 50) + 1) * 1000;
 
     await interaction.reply({
-      embeds: [new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('🤠 WANTED')
-        .setDescription(`# ${target.username}\n**Crime:** ${crime}\n**Bounty:** ${bounty.toLocaleString()} VND\n\n*Dead or Alive — Approach with caution*`)
-        .setThumbnail(target.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+      components: [
+        new ContainerBuilder()
+          .setAccentColor(COLORS.primary)
+          .addSectionComponents(section =>
+            section
+              .addTextDisplayComponents(td => td.setContent('# 🤠 WANTED'))
+              .addTextDisplayComponents(td => td.setContent(`# ${target.username}`))
+              .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true })))
+          )
+          .addTextDisplayComponents(td => td.setContent([
+            `**Crime:** ${crime}`,
+            `**Bounty:** ${bounty.toLocaleString()} VND`,
+            '',
+            `*Dead or Alive — Approach with caution*`,
+          ].join('\n')))
+          .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`))
+      ],
+      flags: MessageFlags.IsComponentsV2,
     });
   },
 };

@@ -1,13 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getBookings, getEvents, db } = require('../firebase');
-const { ref, get } = require('firebase/database');
-
-async function getEconomyData(discordId) {
-  try {
-    const snap = await get(ref(db, `economy/${discordId}`));
-    return snap.exists() ? snap.val() : { wallet: 0, bank: 0, xp: 0, level: 1 };
-  } catch { return { wallet: 0, bank: 0, xp: 0, level: 1 }; }
-}
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
+const { LOGO, FOOTER, COLORS, STATUS_EMOJI } = require('../config');
+const { getUserBookings, getEvents } = require('../firebase');
+const { isUBEnabled, getUBBalance } = require('../services/unbelievaboat');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -21,23 +15,25 @@ module.exports = {
     const target = interaction.options.getUser('user') || interaction.user;
     const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 
-    const [allBookings, allEvents, economy] = await Promise.all([
-      getBookings(),
+    const [userBookings, allEvents] = await Promise.all([
+      getUserBookings(target.id),
       getEvents(),
-      getEconomyData(target.id),
     ]);
-
-    const userBookings = allBookings.filter(b => b.discord_id === target.id);
     const userRsvps = allEvents.filter(e =>
       Array.isArray(e.rsvps) && e.rsvps.some(r => r.discord_id === target.id)
     );
 
-    const totalVND = (economy.wallet || 0) + (economy.bank || 0);
-    const level = economy.level || 1;
-    const xp = economy.xp || 0;
-    const xpNeeded = level * 100;
-    const xpBar = Math.floor((xp / xpNeeded) * 10);
-    const progressBar = '🟥'.repeat(xpBar) + '⬛'.repeat(10 - xpBar);
+    let economyLine = '> Economy is tracked via Unbelievaboat.';
+    if (isUBEnabled()) {
+      const ubBal = await getUBBalance(interaction.guildId, target.id).catch(() => null);
+      if (ubBal) {
+        economyLine = [
+          `> 👛 **Cash:** ${(ubBal.cash || 0).toLocaleString()} VND`,
+          `> 🏦 **Bank:** ${(ubBal.bank || 0).toLocaleString()} VND`,
+          `> 💎 **Total:** ${(ubBal.total || 0).toLocaleString()} VND`,
+        ].join('\n');
+      }
+    }
 
     const joinedAt = member?.joinedAt
       ? `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:R>`
@@ -50,53 +46,34 @@ module.exports = {
       .slice(0, 3)
       .join(', ') || 'None';
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle(`👤 ${target.displayName || target.username}'s Profile`)
-      .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
-      .addFields(
-        {
-          name: '👋 Member Info',
-          value: [
-            `> 🏷️ **Username:** ${target.username}`,
-            `> 📅 **Joined:** ${joinedAt}`,
-            `> 🎖️ **Top Roles:** ${roles}`,
-          ].join('\n'),
-          inline: false,
-        },
-        {
-          name: '💰 Economy',
-          value: [
-            `> 👛 **Wallet:** ${(economy.wallet || 0).toLocaleString()} VND`,
-            `> 🏦 **Bank:** ${(economy.bank || 0).toLocaleString()} VND`,
-            `> 💎 **Total:** ${totalVND.toLocaleString()} VND`,
-          ].join('\n'),
-          inline: true,
-        },
-        {
-          name: '⭐ Level',
-          value: [
-            `> 🏅 **Level:** ${level}`,
-            `> ✨ **XP:** ${xp}/${xpNeeded}`,
-            `> ${progressBar}`,
-          ].join('\n'),
-          inline: true,
-        },
-        {
-          name: '✈️ Flight History',
-          value: [
-            `> 🎫 **Active Bookings:** ${userBookings.length}`,
-            `> 📅 **Events Attended:** ${userRsvps.length}`,
-            userBookings.length > 0
-              ? `> 🛫 **Last Flight:** ${userBookings[userBookings.length - 1]?.flight_number || 'N/A'}`
-              : '> 🛫 **Last Flight:** None yet',
-          ].join('\n'),
-          inline: false,
-        },
-      )
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
+    const flightHistory = [
+      `> 🎫 **Active Bookings:** ${userBookings.length}`,
+      `> 📅 **Events Attended:** ${userRsvps.length}`,
+      userBookings.length > 0
+        ? `> 🛫 **Last Flight:** ${userBookings[userBookings.length - 1]?.flight_number || 'N/A'}`
+        : '> 🛫 **Last Flight:** None yet',
+    ].join('\n');
 
-    await interaction.editReply({ embeds: [embed] });
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(
+            td => td.setContent(`# 👤 ${target.displayName || target.username}'s Profile`),
+            td => td.setContent([
+              `> 🏷️ **Username:** ${target.username}`,
+              `> 📅 **Joined:** ${joinedAt}`,
+              `> 🎖️ **Top Roles:** ${roles}`,
+            ].join('\n')),
+            td => td.setContent(`> **💰 Economy**\n${economyLine}`),
+          )
+          .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true, size: 256 })))
+      )
+      .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`> **✈️ Flight History**\n${flightHistory}`))
+      .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

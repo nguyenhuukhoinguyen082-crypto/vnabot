@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const { getEvents, deleteEvent } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,15 +14,14 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission to use this command.' });
     }
 
     const query = interaction.options.getString('name');
     const confirm = interaction.options.getBoolean('confirm');
 
-    if (!confirm) return interaction.editReply({ content: '⚠️ Set `confirm` to `true` to proceed.' });
+    if (!confirm) return interaction.editReply({ content: '> Set `confirm` to `true` to proceed.' });
 
     const events = await getEvents();
     const event = events.find(e =>
@@ -30,11 +30,10 @@ module.exports = {
     );
 
     if (!event) {
-      const list = events.map(e => `• **${e.name}** — \`${e.id}\``).join('\n');
+      const list = events.map(e => `- **${e.name}** — \`${e.id}\``).join('\n');
       return interaction.editReply({ content: `❌ Event not found.\n\nAvailable events:\n${list || 'None'}` });
     }
 
-    // Delete Discord scheduled event if it exists
     if (event.discord_event_id) {
       try {
         const discordEvent = await interaction.guild.scheduledEvents.fetch(event.discord_event_id).catch(() => null);
@@ -46,17 +45,14 @@ module.exports = {
 
     await deleteEvent(event.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🗑️ Event Deleted')
-      .addFields(
-        { name: '📅 Name', value: event.name || 'N/A', inline: true },
-        { name: '🎭 Type', value: event.event_type || 'N/A', inline: true },
-        { name: '🔗 Discord Event', value: event.discord_event_id ? '✅ Also deleted from Discord' : 'N/A', inline: false },
-      )
-      .setFooter({ text: `Deleted by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(td => td.setContent('# Event Deleted'))
+      .addTextDisplayComponents(td => td.setContent(`> **Name:** \`${event.name || 'N/A'}\``))
+      .addTextDisplayComponents(td => td.setContent(`> **Type:** \`${event.event_type || 'N/A'}\``))
+      .addTextDisplayComponents(td => td.setContent(`> **Discord Event:** ${event.discord_event_id ? 'Also deleted from Discord' : 'N/A'}`))
+      .addTextDisplayComponents(td => td.setContent('-# Deleted by ' + interaction.user.username + ' • ' + FOOTER));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

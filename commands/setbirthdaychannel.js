@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const { updateBirthdayConfig } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,20 +12,22 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission.' });
     }
 
     const channel = interaction.options.getChannel('channel');
     await updateBirthdayConfig({ channel_id: channel.id });
 
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(td => td.setContent('# ✅ Birthday Channel Set'))
+      .addTextDisplayComponents(td => td.setContent(`Birthday announcements will now be posted in <#${channel.id}>.`))
+      .addTextDisplayComponents(td => td.setContent('-# ' + FOOTER));
+
     return interaction.editReply({
-      embeds: [new EmbedBuilder()
-        .setColor(0x00B050)
-        .setTitle('✅ Birthday Channel Set')
-        .setDescription(`Birthday announcements will now be posted in <#${channel.id}>.`)
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
     });
   },
 };

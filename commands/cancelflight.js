@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const { getFlight, updateFlight } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,8 +16,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -34,21 +34,15 @@ module.exports = {
 
     await updateFlight(flight.id, { status: 'cancelled', bookings_open: false });
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('✈️ Flight Cancelled')
-      .addFields(
-        { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${flight.origin} → ${flight.destination}`, inline: true },
-        { name: '📋 New Status', value: '❌ Cancelled', inline: true },
-        {
-          name: '\u200b',
-          value: '> Bookings are now **closed**. The flight is marked as cancelled in the system.',
-        },
-      )
-      .setFooter({ text: `Cancelled by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(td => td.setContent('# ✈️ Flight Cancelled'))
+      .addTextDisplayComponents(td => td.setContent('> **✈️ Flight:** ' + flightNumber))
+      .addTextDisplayComponents(td => td.setContent('> **🛫 Route:** ' + flight.origin + ' → ' + flight.destination))
+      .addTextDisplayComponents(td => td.setContent('> **📋 New Status:** ❌ Cancelled'))
+      .addTextDisplayComponents(td => td.setContent('> Bookings are now **closed**. The flight is marked as cancelled in the system.'))
+      .addTextDisplayComponents(td => td.setContent('-# Cancelled by ' + interaction.user.username + ' • ' + FOOTER));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

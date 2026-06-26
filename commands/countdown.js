@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -24,13 +25,12 @@ module.exports = {
       return interaction.reply({ content: '❌ Invalid date/time. Use dd/mm/yyyy and HH:mm.', ephemeral: true });
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle(`⏳ ${title}`)
-      .setDescription(`**Target:** <t:${Math.floor(ts / 1000)}:F>\n**Countdown:** <t:${Math.floor(ts / 1000)}:R>`)
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(td => td.setContent(`# ⏳ ${title}`))
+      .addTextDisplayComponents(td => td.setContent(`**Target:** <t:${Math.floor(ts / 1000)}:F>\n**Countdown:** <t:${Math.floor(ts / 1000)}:R>`))
+      .addTextDisplayComponents(td => td.setContent('-# ' + FOOTER));
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

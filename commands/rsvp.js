@@ -1,5 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
 const { getEvents, rsvpEvent } = require('../firebase');
+const { LOGO, FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,31 +17,39 @@ module.exports = {
     const query = interaction.options.getString('event').toLowerCase();
     const events = await getEvents();
 
-    // Try to match by ID or name
     const event = events.find(e =>
       e.id.toLowerCase() === query ||
       (e.name || e.title || '').toLowerCase().includes(query)
     );
 
     if (!event) {
-      // Show available events
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('❌ Event Not Found')
-        .setDescription(`Could not find event matching **"${query}"**.\n\nAvailable events:`)
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' });
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addTextDisplayComponents(
+          td => td.setContent('# ❌ Event Not Found'),
+          td => td.setContent(`Could not find event matching **"${query}"**.`),
+        );
 
       if (events.length) {
-        embed.addFields(events.map(e => ({
-          name: `📅 ${e.name || e.title || 'Unnamed Event'}`,
-          value: `> ID: \`${e.id}\`\n> Date: ${e.date || e.event_date || 'TBA'}\n> Use \`/rsvp ${e.id}\` to attend`,
-          inline: false,
-        })));
+        container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        container.addTextDisplayComponents(td => td.setContent('> **Available events:**'));
+
+        for (const e of events) {
+          container.addTextDisplayComponents(td => td.setContent([
+            `> **📅 ${e.name || e.title || 'Unnamed Event'}**`,
+            `> ID: \`${e.id}\``,
+            `> Date: ${e.date || e.event_date || 'TBA'}`,
+            `> Use \`/rsvp ${e.id}\` to attend`,
+          ].join('\n')));
+          container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+        }
       } else {
-        embed.setDescription('No events are currently scheduled. Check back later!');
+        container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        container.addTextDisplayComponents(td => td.setContent('No events are currently scheduled. Check back later!'));
       }
 
-      return interaction.editReply({ embeds: [embed] });
+      container.addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
     const result = await rsvpEvent(event.id, interaction.user.id, interaction.user.username);
@@ -53,25 +62,26 @@ module.exports = {
 
     const rsvpCount = (event.rsvps?.length || 0) + 1;
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ RSVP Confirmed!')
-      .setDescription(`You're attending **${event.name || event.title || 'the event'}**!`)
-      .setThumbnail('https://i.postimg.cc/SRMftcKS/vna.jpg')
-      .addFields(
-        { name: '📅 Event', value: event.name || event.title || 'N/A', inline: true },
-        { name: '🗓️ Date', value: event.date || event.event_date || 'TBA', inline: true },
-        { name: '🕐 Time', value: event.time || 'TBA', inline: true },
-        { name: '✈️ Flight', value: event.flight_number || 'N/A', inline: true },
-        { name: '👥 Attendees', value: `${rsvpCount}`, inline: true },
-        {
-          name: '\u200b',
-          inline: false,
-        },
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(
+            td => td.setContent('# ✅ RSVP Confirmed!'),
+            td => td.setContent(`You're attending **${event.name || event.title || 'the event'}**!`),
+            td => td.setContent([
+              `> **📅 Event:** ${event.name || event.title || 'N/A'}`,
+              `> **📅 Date:** ${event.date || event.event_date || 'TBA'}`,
+              `> **🕐 Time:** ${event.time || 'TBA'}`,
+              `> **✈️ Flight:** ${event.flight_number || 'N/A'}`,
+              `> **👥 Attendees:** ${rsvpCount}`,
+            ].join('\n')),
+          )
+          .setThumbnailAccessory(tb => tb.setURL(LOGO))
       )
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
+      .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

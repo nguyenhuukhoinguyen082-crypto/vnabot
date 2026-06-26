@@ -1,7 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
+const { LOGO, FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 const { getRoutes, getDestinations } = require('../firebase');
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,9 +12,8 @@ module.exports = {
     const routes = await getRoutes();
     const destinations = await getDestinations();
 
-    if (!routes.length) return interaction.editReply({ content: '🗺️ No routes available to display yet.' });
+    if (!routes.length) return interaction.editReply({ content: '> No routes available to display yet.' });
 
-    // Build a hub-and-spoke summary: count connections per airport
     const connections = {};
     for (const r of routes) {
       const o = r.origin || 'N/A';
@@ -26,23 +24,30 @@ module.exports = {
 
     const sortedHubs = Object.entries(connections).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('🗺️ Vietnam Airlines Group | PTFS — Route Network')
-      .setThumbnail(LOGO)
-      .setDescription([
-        `**${routes.length}** active routes connecting **${Object.keys(connections).length}** airports.`,
-        '',
-        '**🏆 Top Hubs (most connections):**',
-        ...sortedHubs.map(([code, count], i) => `${i + 1}. **${code}** — ${count} connection(s)`),
-        '',
-        '**✈️ All Routes:**',
-        ...routes.slice(0, 15).map(r => `> ${r.origin} ✈️ ${r.destination}`),
-        routes.length > 15 ? `\n*...and ${routes.length - 15} more. Use \`/routes\` to see all.*` : '',
-      ].join('\n'))
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao • Use /routes for full list' })
-      .setTimestamp();
+    const description = [
+      `> **${routes.length}** active routes connecting **${Object.keys(connections).length}** airports.`,
+      '',
+      '**Top Hubs (most connections):**',
+      ...sortedHubs.map(([code, count], i) => `> \`#${i + 1}\` **${code}** - ${count} connection(s)`),
+      '',
+      '**All Routes:**',
+      ...routes.slice(0, 15).map(r => `> ${r.origin} > ${r.destination}`),
+      routes.length > 15 ? `\n> ...and ${routes.length - 15} more. Use \`/routes\` to see all.` : '',
+    ].join('\n');
 
-    await interaction.editReply({ embeds: [embed] });
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(
+            td => td.setContent('# Vietnam Airlines Group | PTFS — Route Network'),
+            td => td.setContent(description),
+          )
+          .setThumbnailAccessory(tb => tb.setURL(LOGO))
+      )
+      .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER} - Use /routes for full list`));
+
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

@@ -1,7 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
+const { LOGO, FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 const { getBookings } = require('../firebase');
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,31 +18,23 @@ module.exports = {
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
     if (!userBookings.length) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x007B8A)
-          .setTitle(`📖 ${target.displayName || target.username}'s Logbook`)
-          .setDescription('No flights logged yet. Book a flight with `/book flight`!')
-          .setThumbnail(target.displayAvatarURL({ dynamic: true }) || LOGO)
-          .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
-      });
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# 📖 ${target.displayName || target.username}'s Logbook`),
+              td => td.setContent('No flights logged yet. Book a flight with `/book flight`!'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true }) || LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
     const economyCount = userBookings.filter(b => b.seat_class === 'economy').length;
     const businessCount = userBookings.filter(b => b.seat_class === 'business').length;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle(`📖 ${target.displayName || target.username}'s Flight Logbook`)
-      .setThumbnail(target.displayAvatarURL({ dynamic: true }) || LOGO)
-      .setDescription(`**${userBookings.length}** total flight(s) logged.`)
-      .addFields(
-        { name: '💺 Economy Flights', value: `${economyCount}`, inline: true },
-        { name: '💼 Business Flights', value: `${businessCount}`, inline: true },
-        { name: '\u200b', value: '\u200b', inline: true },
-      )
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
 
     const recent = userBookings.slice(0, 10);
     const lines = recent.map(b => {
@@ -52,12 +43,28 @@ module.exports = {
       return `${classEmoji} **${b.flight_number}** — ${b.origin} ✈️ ${b.destination} — Seat ${b.seat} — *${date}*`;
     });
 
-    embed.addFields({ name: '🕐 Recent Flights', value: lines.join('\n'), inline: false });
+    const container = new ContainerBuilder()
+      .setAccentColor(0x007B8A)
+      .addSectionComponents(section =>
+        section
+          .addTextDisplayComponents(
+            td => td.setContent(`# 📖 ${target.displayName || target.username}'s Flight Logbook`),
+            td => td.setContent(`**${userBookings.length}** total flight(s) logged.`),
+            td => td.setContent(`> **💺 Economy Flights:** ${economyCount}  |  **💼 Business Flights:** ${businessCount}`),
+          )
+          .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true }) || LOGO))
+      )
+      .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+      .addTextDisplayComponents(td => td.setContent(`> **🕐 Recent Flights**\n${lines.join('\n')}`));
 
     if (userBookings.length > 10) {
-      embed.addFields({ name: '\u200b', value: `*...and ${userBookings.length - 10} more flight(s).*`, inline: false });
+      container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(td => td.setContent(`*...and ${userBookings.length - 10} more flight(s).*`));
     }
 
-    return interaction.editReply({ embeds: [embed] });
+    container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+    container.addTextDisplayComponents(td => td.setContent('-# Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao'));
+
+    return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

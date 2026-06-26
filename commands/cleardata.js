@@ -1,9 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
 const { db } = require('../firebase');
 const { ref, get, remove } = require('firebase/database');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 const CONFIRM_CODE = 'CONFIRM';
 
 const TABLES = {
@@ -47,7 +46,7 @@ module.exports = {
         { name: '📅 Events', value: 'events' },
         { name: '🏷️ Deals', value: 'deals' },
         { name: '🛩️ Fleet', value: 'fleet' },
-        { name: '🗺️ Routes', value: 'routes' },
+        { name: '�- �️ Routes', value: 'routes' },
         { name: '🌍 Destinations', value: 'destinations' },
         { name: '💰 Economy', value: 'economy' },
         { name: '✈️ LotusMiles', value: 'miles' },
@@ -62,8 +61,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission.' });
     }
 
@@ -87,17 +85,15 @@ module.exports = {
 
     const totalDeleted = results.reduce((sum, r) => sum + r.count, 0);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle(`🗑️ Data Cleared — ${category === 'all' ? 'ALL DATA' : category}`)
-      .setThumbnail(LOGO)
-      .setDescription(`**${totalDeleted}** total record(s) permanently deleted.`)
-      .addFields(
-        ...results.map(r => ({ name: `📁 ${r.table}`, value: `${r.count} record(s) deleted`, inline: true }))
-      )
-      .setFooter({ text: `Cleared by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(
+        td => td.setContent(`# Data Cleared — ${category === 'all' ? 'ALL DATA' : category}`),
+        td => td.setContent(`**${totalDeleted}** total record(s) permanently deleted.`),
+        ...results.map(r => td => td.setContent(`> **${r.table}:** ${r.count} record(s) deleted`)),
+        td => td.setContent(`-# Cleared by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

@@ -1,12 +1,16 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, TextDisplayBuilder,
   ActionRowBuilder, StringSelectMenuBuilder, ComponentType,
+  ModalBuilder, TextInputBuilder, TextInputStyle,
+  ButtonBuilder, ButtonStyle,
 } = require('discord.js');
-const { createFlight, getFleet } = require('../firebase');
+const { createFlight, getFleet, setFlightClasses } = require('../firebase');
+const { FOOTER, COLORS, STATUS_EMOJI, CLASS_CONFIG } = require('../config');
 require('dotenv').config();
 
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
-const CREW_ROLE = process.env.CREW_ROLE_ID || '1504118227910000781';
+
+const CREW_ROLE = process.env.CREW_ROLE_ID;
 
 const AIRLINE_EMOJI = {
   vna: '🇻🇳',
@@ -37,9 +41,8 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission.' });
+    if (!utils.staffCheck(interaction)) {
+      return interaction.editReply({ content: '> You do not have permission.' });
     }
 
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
@@ -51,7 +54,7 @@ module.exports = {
     const flightType = interaction.options.getString('flighttype') || 'Group Flight';
 
     const ts = ictToTimestamp(date, time);
-    if (!ts) return interaction.editReply({ content: '❌ Invalid date/time. Use dd/mm/yyyy and HH:mm (ICT).' });
+    if (!ts) return interaction.editReply({ content: '> Invalid date/time. Use dd/mm/yyyy and HH:mm (ICT).' });
 
     // Auto-detect sub-airline from callsign prefix
     let airlineKey = 'vna';
@@ -60,7 +63,7 @@ module.exports = {
 
     const fleet = await getFleet();
     if (!fleet.length) {
-      return interaction.editReply({ content: '❌ No aircraft in the fleet yet. Use `/createplane` first.' });
+      return interaction.editReply({ content: '> No aircraft in the fleet yet. Use `/createplane` first.' });
     }
 
     // Filter fleet to matching airline or show all active
@@ -79,12 +82,12 @@ module.exports = {
     }
 
     const options = displayFleet.slice(0, 25).map(p => ({
-      label: `${p.display_name || p.aircraft_type} — VN-${p.tail_registration || p.registration}`,
-      description: `${p.passenger_capacity || '?'} seats | ${p.seat_config || '?'} | ${p.airline_name || 'Vietnam Airlines'} | ${p.image_url ? '🖼️ Has image' : '⚠️ No image'}`,
+      label: `${p.display_name || p.aircraft_type} - VN-${p.tail_registration || p.registration}`,
+      description: `${p.passenger_capacity || '?'} seats | ${p.seat_config || '?'} | ${p.airline_name || 'Vietnam Airlines'} | ${p.image_url ? 'Has image' : 'No image'}`,
       value: p.id,
     }));
 
-    const airlineEmoji = AIRLINE_EMOJI[airlineKey] || '✈️';
+    const airlineEmoji = AIRLINE_EMOJI[airlineKey] || '\u2708\ufe0f';
 
     const selectRow = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -93,23 +96,21 @@ module.exports = {
         .addOptions(options)
     );
 
-    const previewEmbed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('✈️ Create Flight — Select Aircraft')
-      .setThumbnail(LOGO)
-      .addFields(
-        { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${origin} → ${destination}`, inline: true },
-        { name: '🕐 Time (ICT)', value: `${date} ${time} → <t:${Math.floor(ts / 1000)}:F>`, inline: false },
-        { name: '🚪 Gate', value: gate, inline: true },
-        { name: '🛫 Type', value: flightType, inline: true },
-        { name: '🏢 Airline', value: `${airlineEmoji} ${airlineKey === 'vna' ? 'Vietnam Airlines' : airlineKey === 'pacific' ? 'Pacific Airlines' : 'VASCO'}`, inline: true },
-      )
-      .setDescription('Select the aircraft for this flight. Aircraft with 🖼️ will use their image as the Discord Event banner.')
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
+    const previewContainer = new ContainerBuilder()
+      .setAccentColor(COLORS.primary)
+      .addTextDisplayComponents(
+        td => td.setContent('# Create Flight - Select Aircraft'),
+        td => td.setContent(`> **Flight:** \`${flightNumber}\``),
+        td => td.setContent(`> **Route:** ${origin} \u2192 ${destination}`),
+        td => td.setContent(`> **Time (ICT):** ${date} ${time} > <t:${Math.floor(ts / 1000)}:F>`),
+        td => td.setContent(`> **Gate:** \`${gate}\``),
+        td => td.setContent(`> **Type:** \`${flightType}\``),
+        td => td.setContent(`> **Airline:** ${airlineEmoji} ${airlineKey === 'vna' ? 'Vietnam Airlines' : airlineKey === 'pacific' ? 'Pacific Airlines' : 'VASCO'}`),
+        td => td.setContent('Select the aircraft for this flight. Aircraft with images will use their image as the Discord Event banner.'),
+        td => td.setContent('-# Vietnam Airlines Group | PTFS - Sai Canh Vuon Cao'),
+      );
 
-    const msg = await interaction.editReply({ embeds: [previewEmbed], components: [selectRow] });
+    const msg = await interaction.editReply({ components: [previewContainer, selectRow], flags: MessageFlags.IsComponentsV2 });
 
     const collector = msg.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
@@ -170,33 +171,37 @@ module.exports = {
         // Ping crew
         try {
           await interaction.channel.send({
-            content: `<@&${CREW_ROLE}> ✈️ Flight **${flightNumber}** (${origin} → ${destination}) has been created! Use \`/book flight\` to book your seat.`,
+            content: `<@&${CREW_ROLE}> Flight **${flightNumber}** (${origin} \u2192 ${destination}) has been created! Use \`/book flight\` to book your seat.`,
           });
         } catch {}
 
         collector.stop('done');
 
-        const successEmbed = new EmbedBuilder()
-          .setColor(0x00B050)
-          .setTitle('✅ Flight Created!')
-          .setThumbnail(LOGO)
-          .addFields(
-            { name: '✈️ Flight', value: flightNumber, inline: true },
-            { name: '🗺️ Route', value: `${origin} → ${destination}`, inline: true },
-            { name: '🕐 Time', value: `<t:${Math.floor(ts / 1000)}:F>`, inline: false },
-            { name: '🛩️ Aircraft', value: `${selectedPlane.display_name || selectedPlane.aircraft_type} (VN-${selectedPlane.tail_registration || selectedPlane.registration})`, inline: true },
-            { name: '💺 Capacity', value: `${selectedPlane.passenger_capacity || '?'} seats`, inline: true },
-            { name: '💼 Business', value: selectedPlane.has_business ? '✅ Yes' : '❌ No', inline: true },
-            { name: '🚪 Gate', value: gate, inline: true },
-            { name: '🖼️ Event Banner', value: selectedPlane.image_url ? '✅ Aircraft image used!' : '⚠️ No image — add one with `/editplane`', inline: true },
-            { name: '📅 Discord Event', value: discordEvent ? `[View Event](${discordEvent.url})` : '⚠️ Failed (check Manage Events permission)', inline: false },
-            { name: '📢 Next Step', value: `Use \`/postflight flightnumber:${flightNumber} flighttype:${flightType} host:YOUR NAME\` to announce!`, inline: false },
-          )
-          .setFooter({ text: `Created by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-          .setTimestamp();
+        const successContainer = new ContainerBuilder()
+          .setAccentColor(COLORS.success)
+          .addTextDisplayComponents(
+            td => td.setContent('# Flight Created!'),
+            td => td.setContent(`> **Flight:** \`${flightNumber}\``),
+            td => td.setContent(`> **Route:** ${origin} \u2192 ${destination}`),
+            td => td.setContent(`> **Time:** <t:${Math.floor(ts / 1000)}:F>`),
+            td => td.setContent(`> **Aircraft:** ${selectedPlane.display_name || selectedPlane.aircraft_type} (VN-${selectedPlane.tail_registration || selectedPlane.registration})`),
+            td => td.setContent(`> **Capacity:** ${selectedPlane.passenger_capacity || '?'} seats`),
+            td => td.setContent(`> **Business:** ${selectedPlane.has_business ? 'Yes' : 'No'}`),
+            td => td.setContent(`> **Gate:** \`${gate}\``),
+            td => td.setContent(`> **Event Banner:** ${selectedPlane.image_url ? 'Aircraft image used!' : 'No image - add one with \`/editplane\`'}`),
+            td => td.setContent(`> **Discord Event:** ${discordEvent ? `[View Event](${discordEvent.url})` : 'Failed (check Manage Events permission)'}`),
+            td => td.setContent(`> **Next Step:** Use \`/postflight flightnumber:${flightNumber} flighttype:${flightType} host:YOUR NAME\` to announce!`),
+            td => td.setContent(`-# ${FOOTER} - Created by ${interaction.user.username}`),
+          );
 
-        if (selectedPlane.image_url) successEmbed.setImage(selectedPlane.image_url);
-        await interaction.editReply({ embeds: [successEmbed], components: [] });
+        const configBtnRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`cf_config_${flightId}`)
+            .setLabel('Configure Class Pricing')
+            .setStyle(ButtonStyle.Secondary),
+        );
+
+        await interaction.editReply({ components: [successContainer, configBtnRow], flags: MessageFlags.IsComponentsV2 });
       } catch (err) {
         console.error('createflight error:', err.message);
       }
@@ -204,7 +209,7 @@ module.exports = {
 
     collector.on('end', (_, reason) => {
       if (reason !== 'done') {
-        interaction.editReply({ content: '⏱️ Timed out. Run `/createflight` again.', embeds: [], components: [] }).catch(() => {});
+        interaction.editReply({ content: '> Timed out. Run `/createflight` again.', embeds: [], components: [] }).catch(() => {});
       }
     });
   },

@@ -1,8 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder } = require('discord.js');
 const { createTraining, getTrainings, getTraining, deleteTraining, updateTraining } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 function ictToTimestamp(dateStr, timeStr) {
   try {
@@ -22,7 +21,7 @@ module.exports = {
         .addStringOption(opt => opt.setName('type').setDescription('Training type').setRequired(true)
           .addChoices(
             { name: '👨‍✈️ Pilot Training', value: 'Pilot Training' },
-            { name: '🗼 ATC Training', value: 'ATC Training' },
+            { name: '🎧 ATC Training', value: 'ATC Training' },
             { name: '🧑‍✈️ Cabin Crew Training', value: 'Cabin Crew Training' },
             { name: '🛠️ Ground Crew Training', value: 'Ground Crew Training' },
           ))
@@ -42,14 +41,10 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const staffRoleId = process.env.STAFF_ROLE_ID;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // SCHEDULE
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'schedule') {
       await interaction.deferReply({ ephemeral: true });
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+      if (!utils.staffCheck(interaction)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -65,20 +60,26 @@ module.exports = {
 
       const id = await createTraining({ type, date, time, timestamp: ts, host, description });
 
-      const typeEmoji = type.includes('Pilot') ? '👨‍✈️' : type.includes('ATC') ? '🗼' : type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
+      const typeEmoji = type.includes('Pilot') ? '👨‍✈️' : type.includes('ATC') ? '🎧' : type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
 
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`${typeEmoji} Training Scheduled — ${type}`)
-        .setThumbnail(LOGO)
-        .setDescription(description)
-        .addFields(
-          { name: '🕐 Date & Time', value: `<t:${Math.floor(ts / 1000)}:F>`, inline: true },
-          { name: '👤 Instructor', value: host, inline: true },
-          { name: '🔑 Training ID', value: `\`${id}\``, inline: false },
+      const trainingContainer = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# ${typeEmoji} Training Scheduled — ${type}`),
+              td => td.setContent(description),
+              td => td.setContent([
+                `> **🕐 Date & Time:** <t:${Math.floor(ts / 1000)}:F>`,
+                `> **👤 Instructor:** ${host}`,
+              ].join('\n')),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
         )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`> **🔑 Training ID:** \`${id}\``))
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
       let targetChannel;
       if (channelId) {
@@ -88,48 +89,46 @@ module.exports = {
         targetChannel = interaction.channel;
       }
 
-      await targetChannel.send({ embeds: [embed] });
+      await targetChannel.send({ components: [trainingContainer], flags: MessageFlags.IsComponentsV2 });
       return interaction.editReply({ content: `✅ Training scheduled and announced in <#${targetChannel.id}>!` });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // LIST
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'list') {
       await interaction.deferReply();
       const trainings = (await getTrainings()).filter(t => t.status !== 'cancelled');
 
       if (!trainings.length) return interaction.editReply({ content: '📚 No training sessions scheduled right now.' });
 
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle('📚 Vietnam Airlines Group | PTFS — Training Sessions')
-        .setThumbnail(LOGO)
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent('# 📚 Vietnam Airlines Group | PTFS — Training Sessions'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
       for (const t of trainings) {
-        const typeEmoji = t.type.includes('Pilot') ? '👨‍✈️' : t.type.includes('ATC') ? '🗼' : t.type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
-        embed.addFields({
-          name: `${typeEmoji} ${t.type}`,
-          value: [
-            `> 🕐 ${t.timestamp ? `<t:${Math.floor(t.timestamp / 1000)}:F>` : `${t.date} ${t.time}`}`,
-            `> 👤 Instructor: ${t.host}`,
-            `> 🔑 ID: \`${t.id}\``,
-          ].join('\n'),
-          inline: false,
-        });
+        const typeEmoji = t.type.includes('Pilot') ? '👨‍✈️' : t.type.includes('ATC') ? '🎧' : t.type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
+        container.addTextDisplayComponents(td => td.setContent([
+          `> **${typeEmoji} ${t.type}**`,
+          `> 🕐 ${t.timestamp ? `<t:${Math.floor(t.timestamp / 1000)}:F>` : `${t.date} ${t.time}`}`,
+          `> 👤 **Instructor:** ${t.host}`,
+          `> 🔑 **ID:** \`${t.id}\``,
+        ].join('\n')));
+        container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
       }
 
-      return interaction.editReply({ embeds: [embed] });
+      container.addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // CANCEL
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'cancel') {
       await interaction.deferReply({ ephemeral: true });
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+      if (!utils.staffCheck(interaction)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -142,13 +141,18 @@ module.exports = {
 
       await deleteTraining(id);
 
+      const cancelContainer = new ContainerBuilder()
+        .setAccentColor(COLORS.danger)
+        .addTextDisplayComponents(
+          td => td.setContent('# ❌ Training Cancelled'),
+          td => td.setContent(`> **📚 Type:** ${training.type}`),
+        )
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+
       return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0xFF0000)
-          .setTitle('🗑️ Training Cancelled')
-          .addFields({ name: '📚 Type', value: training.type, inline: true })
-          .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-          .setTimestamp()],
+        components: [cancelContainer],
+        flags: MessageFlags.IsComponentsV2,
       });
     }
   },

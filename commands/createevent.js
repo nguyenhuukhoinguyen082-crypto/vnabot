@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
 const { createEvent } = require('../firebase');
-require('dotenv').config();
+const utils = require('../utils');
+const { FOOTER, COLORS, STATUS_EMOJI } = require('../config');
 
 function ictToTimestamp(dateStr, timeStr) {
   try {
@@ -24,7 +25,7 @@ module.exports = {
       .addChoices(
         { name: '✈️ Group Flight', value: 'Group Flight' },
         { name: '📚 Training', value: 'Training' },
-        { name: '🗣️ Meeting', value: 'Meeting' },
+        { name: '�- �️ Meeting', value: 'Meeting' },
         { name: '🎉 Special Event', value: 'Special Event' },
         { name: '📋 Other', value: 'Other' },
       ))
@@ -38,10 +39,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
-    }
+if (!utils.staffCheck(interaction)) return interaction.editReply({ content: '> You do not have permission to use this command.' });
 
     const name = interaction.options.getString('name');
     const date = interaction.options.getString('date');
@@ -59,8 +57,8 @@ module.exports = {
     const tsStart = ictToTimestamp(date, time);
     const tsEnd = ictToTimestamp(endDate, endTime);
 
-    if (!tsStart || !tsEnd) return interaction.editReply({ content: '❌ Invalid date/time. Use dd/mm/yyyy and HH:mm.' });
-    if (tsEnd <= tsStart) return interaction.editReply({ content: '❌ End time must be after start time.' });
+    if (!tsStart || !tsEnd) return interaction.editReply({ content: '> Invalid date/time. Use dd/mm/yyyy and HH:mm.' });
+    if (tsEnd <= tsStart) return interaction.editReply({ content: '> End time must be after start time.' });
 
     // Create real Discord Scheduled Event
     let discordEvent = null;
@@ -93,24 +91,22 @@ module.exports = {
       discord_link: discordEventLink, status: 'upcoming',
     });
 
-    const embed = new EmbedBuilder()
-      .setColor(0x00B050)
-      .setTitle('✅ Event Created!')
-      .addFields(
-        { name: '📅 Name', value: name, inline: true },
-        { name: '🎭 Type', value: type, inline: true },
-        { name: '👤 Host', value: host, inline: true },
-        { name: '🕐 Start', value: `<t:${Math.floor(tsStart / 1000)}:F>`, inline: true },
-        { name: '🏁 End', value: `<t:${Math.floor(tsEnd / 1000)}:F>`, inline: true },
-        { name: '✈️ Flight', value: flightNumber || 'N/A', inline: true },
-        { name: '🔑 Event ID', value: `\`${eventId}\``, inline: false },
-        { name: '🔗 Discord Event', value: discordEventLink ? `[Click here](${discordEventLink}) ✅` : '⚠️ Failed — check bot permissions (Manage Events)', inline: false },
-        { name: '\u200b', value: `> Use \`/postevent ${name}\` to post the announcement`, inline: false },
-      )
-      .setFooter({ text: `Created by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.success)
+      .addTextDisplayComponents(
+        td => td.setContent('# Event Created!'),
+        td => td.setContent(`> **Name:** \`${name}\``),
+        td => td.setContent(`> **Type:** \`${type}\``),
+        td => td.setContent(`> **Host:** \`${host}\``),
+        td => td.setContent(`> **Start:** <t:${Math.floor(tsStart / 1000)}:F>`),
+        td => td.setContent(`> **End:** <t:${Math.floor(tsEnd / 1000)}:F>`),
+        td => td.setContent(`> **Flight:** \`${flightNumber || 'N/A'}\``),
+        td => td.setContent(`> **Event ID:** \`${eventId}\``),
+        td => td.setContent(`> **Discord Event:** ${discordEventLink ? `[Click here](${discordEventLink})` : 'Failed — check bot permissions (Manage Events)'}`),
+        td => td.setContent(`> Use \`/postevent ${name}\` to post the announcement`),
+        td => td.setContent(`-# Created by ${interaction.user.username} • ${FOOTER}`),
+      );
 
-    if (banner) embed.setImage(banner);
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

@@ -1,11 +1,13 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, PermissionFlagsBits, MessageFlags,
+  ContainerBuilder, SectionBuilder, TextDisplayBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder,
+  MediaGalleryBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType,
 } = require('discord.js');
 const { getPartnerships, getPartnership, addPartnership, removePartnership } = require('../firebase');
-require('dotenv').config();
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -36,14 +38,10 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const staffRoleId = process.env.STAFF_ROLE_ID;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // ADD
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'add') {
       await interaction.deferReply({ ephemeral: true });
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+      if (!utils.staffCheck(interaction)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -55,59 +53,89 @@ module.exports = {
 
       const id = await addPartnership({ name, logo, discord_link: discordLink, description, banner });
 
-      const embed = new EmbedBuilder()
-        .setColor(0x00B050)
-        .setTitle('✅ Partnership Added')
-        .setThumbnail(logo)
-        .addFields(
-          { name: '🤝 Partner', value: name, inline: true },
-          { name: '🔗 Discord', value: `[Join Server](${discordLink})`, inline: true },
-          { name: '📝 Description', value: description, inline: false },
-          { name: '🔑 ID', value: `\`${id}\``, inline: false },
-          { name: '\u200b', value: `> Use \`/partnership post ${name}\` to announce this partnership!`, inline: false },
-        )
-        .setFooter({ text: `Added by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.success)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent('# ✅ Partnership Added'),
+              td => td.setContent([
+                `> **🤝 Partner:** ${name}`,
+                `> **🔗 Discord:** ${discordLink ? `[Join Server](${discordLink})` : 'N/A'}`,
+              ].join('\n')),
+              td => td.setContent([
+                `> **📝 Description:** ${description}`,
+                `> **🔑 ID:** \`${id}\``,
+              ].join('\n')),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(logo))
+        );
 
-      if (banner) embed.setImage(banner);
-      return interaction.editReply({ embeds: [embed] });
+      if (banner) {
+        container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        container.addMediaGalleryComponents(gallery =>
+          gallery.addItems(item => item.setURL(banner))
+        );
+      }
+
+      container
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`> Use \`/partnership post ${name}\` to announce this partnership!`))
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# Added by ${interaction.user.username} • ${FOOTER}`));
+
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // LIST
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'list') {
       await interaction.deferReply();
       const partnerships = (await getPartnerships()).filter(p => p.status !== 'removed');
 
       if (!partnerships.length) {
-        return interaction.editReply({
-          embeds: [new EmbedBuilder()
-            .setColor(0x007B8A)
-            .setTitle('🤝 Vietnam Airlines Group | PTFS — Partnerships')
-            .setDescription('No partnerships yet. Check back soon!')
-            .setThumbnail(LOGO)
-            .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
-        });
+        const container = new ContainerBuilder()
+          .setAccentColor(COLORS.primary)
+          .addSectionComponents(section =>
+            section
+              .addTextDisplayComponents(
+                td => td.setContent('# 🤝 Vietnam Airlines Group | PTFS — Partnerships'),
+                td => td.setContent('No partnerships yet. Check back soon!'),
+              )
+              .setThumbnailAccessory(tb => tb.setURL(LOGO))
+          )
+          .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+        return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
       }
 
       let page = 0;
       const total = partnerships.length;
 
-      function buildEmbed(index) {
+      function buildContainer(index) {
         const p = partnerships[index];
-        const embed = new EmbedBuilder()
-          .setColor(0x007B8A)
-          .setTitle(`🤝 ${p.name}`)
-          .setDescription(p.description || 'No description provided.')
-          .setThumbnail(p.logo || LOGO)
-          .addFields(
-            { name: '🔗 Discord Server', value: p.discord_link ? `[Join Here](${p.discord_link})` : 'N/A', inline: false },
-          )
-          .setFooter({ text: `Partner ${index + 1} of ${total} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-          .setTimestamp();
-        if (p.banner) embed.setImage(p.banner);
-        return embed;
+        const container = new ContainerBuilder()
+          .setAccentColor(COLORS.primary)
+          .addSectionComponents(section =>
+            section
+              .addTextDisplayComponents(
+                td => td.setContent(`# 🤝 ${p.name}`),
+                td => td.setContent(p.description || 'No description provided.'),
+                td => td.setContent(`> **🔗 Discord Server:** ${p.discord_link ? `[Join Here](${p.discord_link})` : 'N/A'}`),
+              )
+              .setThumbnailAccessory(tb => tb.setURL(p.logo || LOGO))
+          );
+
+        if (p.banner) {
+          container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+          container.addMediaGalleryComponents(gallery =>
+            gallery.addItems(item => item.setURL(p.banner))
+          );
+        }
+
+        container
+          .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(td => td.setContent(`-# Partner ${index + 1} of ${total} • ${FOOTER}`));
+
+        return container;
       }
 
       function buildRow(index) {
@@ -126,7 +154,7 @@ module.exports = {
         return row;
       }
 
-      const msg = await interaction.editReply({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+      const msg = await interaction.editReply({ components: [buildContainer(page), buildRow(page)], flags: MessageFlags.IsComponentsV2 });
 
       const collector = msg.createMessageComponentCollector({
         componentType: ComponentType.Button,
@@ -138,7 +166,7 @@ module.exports = {
         try {
           if (btn.customId === 'pt_prev') page = Math.max(0, page - 1);
           if (btn.customId === 'pt_next') page = Math.min(total - 1, page + 1);
-          await btn.update({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+          await btn.update({ components: [buildContainer(page), buildRow(page)], flags: MessageFlags.IsComponentsV2 });
         } catch (err) {
           console.error('Partnership list collector error:', err.message);
         }
@@ -148,12 +176,9 @@ module.exports = {
       return;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // REMOVE
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'remove') {
       await interaction.deferReply({ ephemeral: true });
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+      if (!utils.staffCheck(interaction)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -170,23 +195,25 @@ module.exports = {
 
       await removePartnership(partnership.id);
 
-      const embed = new EmbedBuilder()
-        .setColor(0xFF0000)
-        .setTitle('🗑️ Partnership Removed')
-        .setThumbnail(partnership.logo || LOGO)
-        .addFields({ name: '🤝 Partner', value: partnership.name, inline: true })
-        .setFooter({ text: `Removed by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.danger)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent('# ❌ Partnership Removed'),
+              td => td.setContent(`> **🤝 Partner:** ${partnership.name}`),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(partnership.logo || LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# Removed by ${interaction.user.username} • ${FOOTER}`));
 
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // POST
-    // ══════════════════════════════════════════════════════════════════════════
     if (sub === 'post') {
       await interaction.deferReply({ ephemeral: true });
-      if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+      if (!utils.staffCheck(interaction)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -200,22 +227,31 @@ module.exports = {
         return interaction.editReply({ content: `❌ Partnership **"${name}"** not found.\n\nExisting:\n${list || 'None'}` });
       }
 
-      const embed = new EmbedBuilder()
-        .setColor(0x007B8A)
-        .setTitle(`🤝 New Partnership — ${partnership.name}`)
-        .setDescription([
-          `📢 We're excited to announce our new partnership with **${partnership.name}**!`,
-          '',
-          partnership.description || '',
-        ].join('\n'))
-        .setThumbnail(partnership.logo || LOGO)
-        .addFields(
-          { name: '🔗 Join Their Server', value: partnership.discord_link ? `[Click Here](${partnership.discord_link})` : 'N/A', inline: false },
-        )
-        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-        .setTimestamp();
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# 🤝 New Partnership — ${partnership.name}`),
+              td => td.setContent([
+                `📢 We're excited to announce our new partnership with **${partnership.name}**!`,
+                '',
+                partnership.description || '',
+              ].join('\n')),
+              td => td.setContent(`> **🔗 Join Their Server:** ${partnership.discord_link ? `[Click Here](${partnership.discord_link})` : 'N/A'}`),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(partnership.logo || LOGO))
+        );
 
-      if (partnership.banner) embed.setImage(partnership.banner);
+      if (partnership.banner) {
+        container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        container.addMediaGalleryComponents(gallery =>
+          gallery.addItems(item => item.setURL(partnership.banner))
+        );
+      }
+
+      container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
       const row = new ActionRowBuilder();
       if (partnership.discord_link) {
@@ -232,11 +268,16 @@ module.exports = {
         targetChannel = interaction.channel;
       }
 
-      const pingContent = pingRole ? `<@&${pingRole.id}>` : null;
+      const components = [];
+      if (pingRole) {
+        components.push(new TextDisplayBuilder().setContent(`<@&${pingRole.id}>`));
+      }
+      components.push(container);
+      if (row.components.length) components.push(row);
+
       await targetChannel.send({
-        content: pingContent,
-        embeds: [embed],
-        components: row.components.length ? [row] : [],
+        components,
+        flags: MessageFlags.IsComponentsV2,
       });
 
       return interaction.editReply({ content: `✅ Partnership announcement posted in <#${targetChannel.id}>!` });

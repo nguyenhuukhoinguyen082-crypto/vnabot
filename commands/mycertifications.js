@@ -1,7 +1,6 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const { getCertifications } = require('../firebase');
-
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const { LOGO, FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,42 +14,55 @@ module.exports = {
     const certs = await getCertifications(target.id);
 
     if (!certs.length) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x007B8A)
-          .setTitle(`🎓 ${target.displayName || target.username}'s Certifications`)
-          .setDescription('No certifications earned yet. Attend a training session to get certified!')
-          .setThumbnail(target.displayAvatarURL({ dynamic: true }) || LOGO)
-          .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
-      });
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# 🎓 ${target.displayName || target.username}'s Certifications`),
+              td => td.setContent('No certifications earned yet. Attend a training session to get certified!'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true }) || LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
     let page = 0;
     const total = certs.length;
 
-    function buildEmbed(index) {
+    function buildContainerWithPage(index) {
       const cert = certs[index];
-      const typeEmoji = cert.type.includes('Pilot') ? '👨‍✈️' : cert.type.includes('ATC') ? '🗼' : cert.type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
+      const typeEmoji = cert.type.includes('Pilot') ? '👨‍✈️' : cert.type.includes('ATC') ? '🎧' : cert.type.includes('Cabin') ? '🧑‍✈️' : '🛠️';
       const issueDate = new Date(cert.issued_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-      const embed = new EmbedBuilder()
-        .setColor(0xC4972A)
-        .setTitle(`🎓 ${target.displayName || target.username}'s Certifications`)
-        .setDescription([
-          `## ${typeEmoji} ${cert.type}`,
-          `Certified pilot of Vietnam Airlines Group | PTFS`,
-        ].join('\n'))
-        .setThumbnail(target.displayAvatarURL({ dynamic: true }) || LOGO)
-        .addFields(
-          { name: '📅 Date Issued', value: issueDate, inline: true },
-          { name: '👤 Instructor', value: cert.instructor || 'N/A', inline: true },
-          { name: '🔖 Certificate ID', value: `\`${cert.cert_id}\``, inline: true },
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.warning)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent(`# 🎓 ${target.displayName || target.username}'s Certifications`),
+              td => td.setContent(`## ${typeEmoji} ${cert.type}\nCertified pilot of Vietnam Airlines Group | PTFS`),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(target.displayAvatarURL({ dynamic: true }) || LOGO))
         )
-        .setFooter({ text: `Certificate ${index + 1} of ${total} • Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao` })
-        .setTimestamp();
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(td => td.setContent([
+          `> **📅 Date Issued:** ${issueDate}`,
+          `> **👤 Instructor:** ${cert.instructor || 'N/A'}`,
+          `> **🔖 Certificate ID:** \`${cert.cert_id}\``,
+        ].join('\n')));
 
-      if (cert.notes) embed.addFields({ name: '📝 Notes', value: cert.notes, inline: false });
-      return embed;
+      if (cert.notes) {
+        container.addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        container.addTextDisplayComponents(td => td.setContent(`> **📝 Notes:** ${cert.notes}`));
+      }
+
+      container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(td => td.setContent(`-# Certificate ${index + 1} of ${total} • ${FOOTER}`));
+
+      return container;
     }
 
     function buildRow(index) {
@@ -61,8 +73,8 @@ module.exports = {
     }
 
     const msg = await interaction.editReply({
-      embeds: [buildEmbed(page)],
-      components: total > 1 ? [buildRow(page)] : [],
+      components: [buildContainerWithPage(page), ...(total > 1 ? [buildRow(page)] : [])],
+      flags: MessageFlags.IsComponentsV2,
     });
 
     if (total <= 1) return;
@@ -77,7 +89,7 @@ module.exports = {
       try {
         if (btn.customId === 'cert_prev') page = Math.max(0, page - 1);
         if (btn.customId === 'cert_next') page = Math.min(total - 1, page + 1);
-        await btn.update({ embeds: [buildEmbed(page)], components: [buildRow(page)] });
+        await btn.update({ components: [buildContainerWithPage(page), buildRow(page)], flags: MessageFlags.IsComponentsV2 });
       } catch (err) {
         console.error('Certifications collector error:', err.message);
       }

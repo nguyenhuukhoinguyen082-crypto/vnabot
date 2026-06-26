@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { FOOTER, COLORS } = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,7 +10,6 @@ module.exports = {
   async execute(interaction) {
     const expr = interaction.options.getString('expression');
 
-    // Only allow safe math characters
     if (!/^[0-9+\-*/().\s%]+$/.test(expr)) {
       return interaction.reply({ content: '❌ Invalid expression. Only numbers and + - * / ( ) % are allowed.', ephemeral: true });
     }
@@ -18,15 +18,16 @@ module.exports = {
       const result = Function(`'use strict'; return (${expr})`)();
       if (!isFinite(result)) throw new Error('Invalid result');
 
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addTextDisplayComponents(td => td.setContent('# 🧮 Calculator'))
+        .addTextDisplayComponents(td => td.setContent(`> **Expression:** \`${expr}\``))
+        .addTextDisplayComponents(td => td.setContent(`> **Result:** **${result}**`))
+        .addTextDisplayComponents(td => td.setContent('-# ' + FOOTER));
+
       await interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x007B8A)
-          .setTitle('🧮 Calculator')
-          .addFields(
-            { name: 'Expression', value: `\`${expr}\``, inline: false },
-            { name: 'Result', value: `**${result}**`, inline: false },
-          )
-          .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })],
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
       });
     } catch {
       await interaction.reply({ content: '❌ Could not evaluate that expression.', ephemeral: true });

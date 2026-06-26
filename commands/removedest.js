@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const { getDestinations, removeDestination } = require('../firebase');
-require('dotenv').config();
+const { FOOTER, COLORS } = require('../config');
+const utils = require('../utils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,8 +16,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const staffRoleId = process.env.STAFF_ROLE_ID;
-    if (staffRoleId && !interaction.member.roles.cache.has(staffRoleId)) {
+    if (!utils.staffCheck(interaction)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 
@@ -43,16 +43,13 @@ module.exports = {
 
     await removeDestination(dest.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🗑️ Destination Removed')
-      .addFields(
-        { name: '🌍 Name', value: dest.name || 'N/A', inline: true },
-        { name: '🛬 Code', value: dest.code || 'N/A', inline: true },
-      )
-      .setFooter({ text: `Removed by ${interaction.user.username} • Vietnam Airlines Group | PTFS` })
-      .setTimestamp();
+    const container = new ContainerBuilder()
+      .setAccentColor(COLORS.danger)
+      .addTextDisplayComponents(td => td.setContent('# ✈️ Destination Removed'))
+      .addTextDisplayComponents(td => td.setContent(`> **🌍 Name:** ${dest.name || 'N/A'}`))
+      .addTextDisplayComponents(td => td.setContent(`> **🛬 Code:** ${dest.code || 'N/A'}`))
+      .addTextDisplayComponents(td => td.setContent('-# Removed by ' + interaction.user.username + ' • ' + FOOTER));
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
   },
 };

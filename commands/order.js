@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ThumbnailBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getMenu, createFoodOrder } = require('../firebase');
+const { LOGO, FOOTER, COLORS } = require('../config');
 
-const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
+const pendingOrders = new Map();
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,7 +14,7 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
     const menu = await getMenu();
 
-    if (!menu.length) return interaction.editReply({ content: '🍽️ The menu is currently unavailable.' });
+    if (!menu.length) return interaction.editReply({ content: '> The menu is currently unavailable.' });
 
     const categories = {};
     for (const item of menu) {
@@ -22,20 +23,28 @@ module.exports = {
       categories[cat].push(item);
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x007B8A)
-      .setTitle('🍽️ Vietnam Airlines Group | PTFS — Inflight Menu')
-      .setThumbnail(LOGO)
-      .setDescription('Select an item below to order.')
-      .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
-      .setTimestamp();
+    function buildMenuContainer() {
+      const container = new ContainerBuilder()
+        .setAccentColor(COLORS.primary)
+        .addSectionComponents(section =>
+          section
+            .addTextDisplayComponents(
+              td => td.setContent('# Vietnam Airlines Group | PTFS — Inflight Menu'),
+              td => td.setContent('Select an item below to order.'),
+            )
+            .setThumbnailAccessory(tb => tb.setURL(LOGO))
+        )
+        .addSeparatorComponents(sep => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-    for (const [cat, items] of Object.entries(categories)) {
-      embed.addFields({
-        name: `🍴 ${cat}`,
-        value: items.map(i => `• **${i.name}** — ${i.price ? `${i.price.toLocaleString()} VND` : 'Complimentary'}\n  *${i.description || ''}*`).join('\n'),
-        inline: false,
-      });
+      for (const [cat, items] of Object.entries(categories)) {
+        container.addTextDisplayComponents(td => td.setContent(
+          `> **${cat}**\n${items.map(i => `> **${i.name}** - ${i.price ? `\`${i.price.toLocaleString()} VND\`` : 'Complimentary'}\n> *${i.description || ''}*`).join('\n')}`
+        ));
+      }
+
+      container.addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
+      return container;
     }
 
     const options = menu.slice(0, 25).map(item => ({
@@ -52,7 +61,7 @@ module.exports = {
         .addOptions(options)
     );
 
-    const msg = await interaction.editReply({ embeds: [embed], components: [selectRow] });
+    const msg = await interaction.editReply({ components: [buildMenuContainer(), selectRow], flags: MessageFlags.IsComponentsV2 });
 
     const collector = msg.createMessageComponentCollector({
       time: 60_000,
@@ -63,31 +72,45 @@ module.exports = {
       try {
         if (i.isStringSelectMenu() && i.customId === 'food_select') {
           const item = menu.find(m => m.id === i.values[0]);
-          if (!item) return await i.update({ content: '❌ Item not found.', components: [] });
+          if (!item) {
+            const errContainer = new ContainerBuilder()
+              .addTextDisplayComponents(td => td.setContent('❌ Item not found.'));
+            return await i.update({ components: [errContainer], flags: MessageFlags.IsComponentsV2 });
+          }
 
           const confirmRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('food_confirm').setLabel(`Order: ${item.name}`).setStyle(ButtonStyle.Success).setEmoji('✅'),
             new ButtonBuilder().setCustomId('food_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger).setEmoji('❌'),
           );
 
-          const confirmEmbed = new EmbedBuilder()
-            .setColor(0xC4972A).setTitle('🛒 Confirm Your Order').setThumbnail(LOGO)
-            .addFields(
-              { name: '🍽️ Item', value: item.name, inline: true },
-              { name: '💰 Price', value: item.price ? `${item.price.toLocaleString()} VND` : 'Complimentary', inline: true },
-              { name: '📝 Description', value: item.description || 'N/A', inline: false },
+          const confirmContainer = new ContainerBuilder()
+            .setAccentColor(COLORS.warning)
+            .addSectionComponents(section =>
+              section
+                .addTextDisplayComponents(
+                  td => td.setContent('# 🛒 Confirm Your Order'),
+                  td => td.setContent([
+                    `> **🍽️ Item:** ${item.name}`,
+                    `> **💰 Price:** ${item.price ? `${item.price.toLocaleString()} VND` : 'Complimentary'}`,
+                  ].join('\n')),
+                  td => td.setContent(`> **📝 Description:** ${item.description || 'N/A'}`),
+                )
+                .setThumbnailAccessory(tb => tb.setURL(LOGO))
             )
-            .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' }).setTimestamp();
+            .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
-          // Store selected item for confirm step
-          i.client._pendingOrder = i.client._pendingOrder || {};
-          i.client._pendingOrder[interaction.user.id] = item;
+          pendingOrders.set(interaction.user.id, item);
 
-          await i.update({ embeds: [confirmEmbed], components: [confirmRow] });
+          await i.update({ components: [confirmContainer, confirmRow], flags: MessageFlags.IsComponentsV2 });
 
         } else if (i.isButton() && i.customId === 'food_confirm') {
-          const item = i.client._pendingOrder?.[interaction.user.id];
-          if (!item) return await i.update({ content: '❌ Order lost. Try again.', embeds: [], components: [] });
+          const item = pendingOrders.get(interaction.user.id);
+          if (!item) {
+            const errContainer = new ContainerBuilder()
+              .addTextDisplayComponents(td => td.setContent('❌ Order lost. Try again.'));
+            return await i.update({ components: [errContainer], flags: MessageFlags.IsComponentsV2 });
+          }
 
           const { code } = await createFoodOrder({
             discord_id: interaction.user.id,
@@ -97,23 +120,30 @@ module.exports = {
             price: item.price || 0,
           });
 
-          if (i.client._pendingOrder) delete i.client._pendingOrder[interaction.user.id];
+          pendingOrders.delete(interaction.user.id);
 
-          const doneEmbed = new EmbedBuilder()
-            .setColor(0x00B050).setTitle('✅ Order Placed!').setThumbnail(LOGO)
-            .addFields(
-              { name: '🎫 Order Code', value: `\`\`\`${code}\`\`\``, inline: false },
-              { name: '🍽️ Item', value: item.name, inline: true },
-              { name: '💰 Price', value: item.price ? `${item.price.toLocaleString()} VND` : 'Complimentary', inline: true },
+          const doneContainer = new ContainerBuilder()
+            .setAccentColor(COLORS.success)
+            .addSectionComponents(section =>
+              section
+                .addTextDisplayComponents(
+                  td => td.setContent('# ✅ Order Placed!'),
+                  td => td.setContent(`> **🎫 Order Code:**\n\`\`\`${code}\`\`\``),
+                  td => td.setContent(`> **🍽️ Item:** ${item.name}\n> **💰 Price:** ${item.price ? `${item.price.toLocaleString()} VND` : 'Complimentary'}`),
+                )
+                .setThumbnailAccessory(tb => tb.setURL(LOGO))
             )
-            .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' }).setTimestamp();
+            .addSeparatorComponents(sep => sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(td => td.setContent(`-# ${FOOTER}`));
 
           collector.stop('done');
-          await i.update({ embeds: [doneEmbed], components: [] });
+          await i.update({ components: [doneContainer], flags: MessageFlags.IsComponentsV2 });
 
         } else if (i.isButton() && i.customId === 'food_cancel') {
           collector.stop('cancelled');
-          await i.update({ content: '❌ Order cancelled.', embeds: [], components: [] });
+          const cancelContainer = new ContainerBuilder()
+            .addTextDisplayComponents(td => td.setContent('❌ Order cancelled.'));
+          await i.update({ components: [cancelContainer], flags: MessageFlags.IsComponentsV2 });
         }
       } catch (err) {
         console.error('Order collector error:', err.message);
@@ -122,7 +152,9 @@ module.exports = {
 
     collector.on('end', (_, reason) => {
       if (reason === 'time') {
-        interaction.editReply({ content: '⏱️ Order timed out.', embeds: [], components: [] }).catch(() => {});
+        const timeoutContainer = new ContainerBuilder()
+          .addTextDisplayComponents(td => td.setContent('⏱️ Order timed out.'));
+        interaction.editReply({ components: [timeoutContainer], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
       }
     });
   },
