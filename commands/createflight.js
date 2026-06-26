@@ -28,8 +28,8 @@ module.exports = {
     .setDescription('[STAFF] Create a new flight using an aircraft from your fleet')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)
     .addStringOption(opt => opt.setName('flightnumber').setDescription('Flight number including prefix (e.g. VN100, BL200, OV301)').setRequired(true))
-    .addStringOption(opt => opt.setName('origin').setDescription('Origin airport code (e.g. HAN)').setRequired(true))
-    .addStringOption(opt => opt.setName('destination').setDescription('Destination airport code (e.g. SGN)').setRequired(true))
+    .addStringOption(opt => opt.setName('origin').setDescription('Origin airport (e.g. Noi Bai International Airport)').setRequired(true))
+    .addStringOption(opt => opt.setName('destination').setDescription('Destination airport (e.g. Tan Son Nhat International Airport)').setRequired(true))
     .addStringOption(opt => opt.setName('date').setDescription('Date (dd/mm/yyyy)').setRequired(true))
     .addStringOption(opt => opt.setName('time').setDescription('Departure time ICT (HH:mm)').setRequired(true))
     .addStringOption(opt => opt.setName('gate').setDescription('Gate (e.g. A1)').setRequired(false))
@@ -43,8 +43,8 @@ module.exports = {
     }
 
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
-    const origin = interaction.options.getString('origin').toUpperCase();
-    const destination = interaction.options.getString('destination').toUpperCase();
+    const origin = interaction.options.getString('origin');
+    const destination = interaction.options.getString('destination');
     const date = interaction.options.getString('date');
     const time = interaction.options.getString('time');
     const gate = interaction.options.getString('gate') || 'TBA';
@@ -126,7 +126,9 @@ module.exports = {
         const flightId = await createFlight({
           flight_number: flightNumber,
           origin,
+          origin_name: origin,
           destination,
+          destination_name: destination,
           date,
           time: `${date} ${time}`,
           timestamp: ts,
