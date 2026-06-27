@@ -4,7 +4,7 @@ require('dotenv').config();
 
 // Sub-airline emoji mapping by callsign prefix
 const AIRLINE_TAIL_EMOJI = {
-  VN: '<:hvntail:1514151733901787197>',
+  VN: '<:hvntail:1519977376044286072>',
   BL: '<:BLTail:1514151520936136734>',
   OV: '<:VAS:1514151545745182841>',
 };
