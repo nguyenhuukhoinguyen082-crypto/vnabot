@@ -5,8 +5,8 @@ require('dotenv').config();
 // Sub-airline emoji mapping by callsign prefix
 const AIRLINE_TAIL_EMOJI = {
   VN: '<:hvntail:1519977376044286072>',
-  BL: '<:BLTail:1514151520936136734>',
-  OV: '<:VAS:1514151545745182841>',
+  BL: '<:pacifictail:1519977456725917818>',
+  OV: '<:vascotail:1519977945609932860>',
 };
 const AIRLINE_GOLD_EMOJI = '<:goldvna:1514151658014118018>';
 const CREW_PING = '<@&1503023201402224780>';
