@@ -86,7 +86,7 @@ module.exports = {
       ``,
       `> To book your flight, please use the command \`/book flight ${flightNumber}\``,
       `> We hope to see you there!`,
-      eventLink ? `> [Event Link](${eventLink})` : `> *Event link not found — check Discord Events*`,
+      eventLink ? `> [Event Link](${eventLink})` : `> [Event Link](https://discord.com/channels/${interaction.guild.id})`,
       `-# ${AIRLINE_GOLD_EMOJI} Vietnam Airlines | Reach Further`,
     ].join('\n');
 
