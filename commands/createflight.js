@@ -149,25 +149,20 @@ module.exports = {
         // Create Discord Scheduled Event with aircraft image as banner
         let discordEvent = null;
         try {
-          const eventPayload = {
-            name: `${flightType} | ${flightNumber} | ${origin} → ${destination}`,
-            scheduledStartTime: new Date(ts),
-            scheduledEndTime: new Date(ts + 60 * 60 * 1000),
-            privacyLevel: 2,
-            entityType: 3,
-            entityMetadata: { location: `Gate ${gate} — ${origin} → ${destination}` },
-            description: `Vietnam Airlines Group | PTFS\nFlight ${flightNumber} from ${origin} to ${destination}\nAircraft: ${selectedPlane.display_name || selectedPlane.aircraft_type}\nCapacity: ${selectedPlane.passenger_capacity || '?'} seats`,
-          };
+  const eventPayload = {
+    name: `${flightType} | ${flightNumber} | ${origin} → ${destination}`,
+    scheduledStartTime: new Date(ts),
+    scheduledEndTime: new Date(ts + 60 * 60 * 1000),
+    privacyLevel: 2,
+    entityType: 3,
+    entityMetadata: { location: `Gate ${gate}` },
+    description: `Vietnam Airlines Group | PTFS\nFlight ${flightNumber}\n${origin} → ${destination}\nAircraft: ${selectedPlane.display_name || selectedPlane.aircraft_type}`,
+  };
 
-          // Add aircraft image as banner if available
-          if (selectedPlane.image_url) {
-            eventPayload.image = selectedPlane.image_url;
-          }
-
-          discordEvent = await interaction.guild.scheduledEvents.create(eventPayload);
-        } catch (err) {
-          console.error('Discord event creation failed:', err.message);
-        }
+  discordEvent = await interaction.guild.scheduledEvents.create(eventPayload);
+} catch (err) {
+  console.error('Discord event creation failed:', err.message, err);
+}
 
         // Ping crew
         try {
