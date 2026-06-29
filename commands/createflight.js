@@ -94,7 +94,7 @@ module.exports = {
     );
 
     const previewEmbed = new EmbedBuilder()
-      .setColor(0x007B8A)
+      .setColor(0x006785)
       .setTitle('✈️ Create Flight — Select Aircraft')
       .setThumbnail(LOGO)
       .addFields(
@@ -174,7 +174,7 @@ module.exports = {
         collector.stop('done');
 
         const successEmbed = new EmbedBuilder()
-          .setColor(0x00B050)
+          .setColor(0xDC9D1F)
           .setTitle('✅ Flight Created!')
           .setThumbnail(LOGO)
           .addFields(
