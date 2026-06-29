@@ -420,7 +420,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
 client.once('ready', () => {
   console.log(`✅ Vietnam Airlines Group | PTFS Bot is online as ${client.user.tag}`);
-  client.user.setActivity('Vietnam Airlines Group | PTFS | /help', { type: 0 });
+  client.user.setActivity('Vietnam Airlines Group | PTFS | /help', { type: 3 });
 
   // Check birthdays on startup, then every 6 hours
   checkBirthdays();
