@@ -19,7 +19,7 @@ function buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages) 
   const available = total - taken;
 
   return new EmbedBuilder()
-    .setColor(seatClass === 'business' ? 0xC4972A : 0x007B8A)
+    .setColor(seatClass === 'business' ? 0x1E90FF : seatClass === 'premium_economy' ? 0xFF8C00 : 0x006785)
     .setTitle(`🗺️ Seat Map — Flight ${flight.flight_number}`)
     .setThumbnail(LOGO)
     .setDescription([
@@ -155,7 +155,7 @@ module.exports = {
       }
 
       const cancelEmbed = new EmbedBuilder()
-        .setColor(0xFF0000)
+        .setColor(0x006785)
         .setTitle('✅ Booking Cancelled')
         .setThumbnail(LOGO)
         .addFields(
@@ -304,7 +304,7 @@ module.exports = {
             const mapWithHighlight = buildSeatMap(config, takenSeats, null, page);
             return await i.update({
               embeds: [new EmbedBuilder()
-                .setColor(seatClass === 'business' ? 0xC4972A : 0x007B8A)
+                .setColor(seatClass === 'business' ? 0x1E90FF : seatClass === 'premium_economy' ? 0xFF8C00 : 0x006785)
                 .setTitle(`🗺️ Pick Your Seat — Row ${selectedRow}`)
                 .setThumbnail(LOGO)
                 .setDescription([
@@ -346,7 +346,7 @@ module.exports = {
               : flight.time || 'TBA';
 
             const confirmEmbed = new EmbedBuilder()
-              .setColor(0x00B050)
+              .setColor(0xDC9D1F)
               .setTitle('✅ Confirm Your Booking')
               .setThumbnail(LOGO)
               .setDescription([
@@ -443,7 +443,7 @@ module.exports = {
               : flight.time || 'TBA';
 
             const successEmbed = new EmbedBuilder()
-              .setColor(0x00B050)
+              .setColor(0x006785)
               .setTitle('🎉 Booking Confirmed!')
               .setThumbnail(LOGO)
               .setDescription(`Welcome aboard, **${interaction.user.displayName || interaction.user.username}**! Your seat is reserved.`)
