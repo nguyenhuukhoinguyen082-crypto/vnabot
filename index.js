@@ -419,12 +419,58 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 });
 
 client.once('ready', () => {
-  console.log(`✅ Vietnam Airlines Group | PTFS Bot is online as ${client.user.tag}`);
-  client.user.setActivity('Vietnam Airlines Group | PTFS | /help', { type: 3 });
+    console.log(`✈️ Vietnam Airlines Group | PTFS Bot is online as ${client.user.tag}`);
+    client.user.setActivity('Vietnam Airlines Group | PTFS | /help', { type: 3 });
 
-  // Check birthdays on startup, then every 6 hours
-  checkBirthdays();
-  setInterval(checkBirthdays, 6 * 60 * 60 * 1000);
+    // Check birthdays on startup, then every 6 hours
+    checkBirthdays();
+    setInterval(checkBirthdays, 6 * 60 * 60 * 1000);
+
+    // ── Daily flight board at 06:00 ICT ──────────────────────────────────────────
+    async function scheduleDailyFlightBoard() {
+      const { getConfig } = require('./firebase');
+      const { buildAndPostBoard } = require('./commands/postflightboard');
+
+      const now = new Date(Date.now() + 7 * 60 * 60 * 1000); // current ICT time
+      const next6AM = new Date(now);
+      next6AM.setUTCHours(23, 0, 0, 0); // 23:00 UTC = 06:00 ICT next day
+
+      // If 06:00 ICT hasn't passed yet today, post today
+      if (now.getUTCHours() < 23) {
+        next6AM.setUTCDate(next6AM.getUTCDate()); // keep today
+      } else {
+        next6AM.setUTCDate(next6AM.getUTCDate() + 1); // move to tomorrow
+      }
+
+      const msUntilNext = next6AM.getTime() - (Date.now() + 7 * 60 * 60 * 1000);
+
+      setTimeout(async () => {
+        try {
+          const config = await getConfig();
+          if (config.flightboard_channel_id) {
+            const guild = client.guilds.cache.first();
+            await buildAndPostBoard(client, guild, config.flightboard_channel_id);
+            console.log('✅ Daily flight board posted');
+          }
+        } catch (err) {
+          console.error('Daily flight board failed:', err.message);
+        }
+        // Reschedule every 24 hours after first run
+        setInterval(async () => {
+          try {
+            const config = await getConfig();
+            if (config.flightboard_channel_id) {
+              const guild = client.guilds.cache.first();
+              await buildAndPostBoard(client, guild, config.flightboard_channel_id);
+            }
+          } catch (err) {
+            console.error('Daily flight board failed:', err.message);
+          }
+        }, 24 * 60 * 60 * 1000);
+      }, msUntilNext);
+
+      console.log(`✅ Flight board scheduled — next post in ${Math.round(msUntilNext / 60000)} minutes`);
+    }
+
+    scheduleDailyFlightBoard();
 });
-
-client.login(process.env.DISCORD_TOKEN);
