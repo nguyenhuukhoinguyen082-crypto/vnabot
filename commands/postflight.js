@@ -9,6 +9,8 @@ const AIRLINE_TAIL_EMOJI = {
   OV: '<:vascotail:1519977945609932860>',
 };
 const AIRLINE_GOLD_EMOJI = '<:goldvna:1514151658014118018>';
+const VNA_NAVY = 0x006785;
+const VNA_GOLD = 0xDC9D1F;
 const CREW_PING = '<@&1503023201402224780>';
 
 module.exports = {
