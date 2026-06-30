@@ -22,8 +22,8 @@ bash fonts/download-fonts.sh
 
 ### Option 3: Manual Download
 Download from Google Fonts and place in this folder:
-- [Roboto-Regular.ttf](https://fonts.gstatic.com/s/roboto/v32/KFOmCnqEu92Fr1Mu4mxP.ttf)
-- [Roboto-Bold.ttf](https://fonts.gstatic.com/s/roboto/v32/KFOlCnqEu92Fr1MmWUlf.ttf)
+- [Roboto-Regular.ttf](https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbWmT.ttf)
+- [Roboto-Bold.ttf](https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjammT.ttf)
 
 ## Railway Deployment
 

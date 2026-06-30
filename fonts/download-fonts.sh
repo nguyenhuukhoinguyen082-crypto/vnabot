@@ -5,11 +5,11 @@
 echo "Downloading Roboto fonts from Google Fonts..."
 
 # Download Roboto Regular
-curl -o Roboto-Regular.ttf "https://fonts.gstatic.com/s/roboto/v32/KFOmCnqEu92Fr1Mu4mxP.ttf"
+curl -o Roboto-Regular.ttf "https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbWmT.ttf"
 echo "✓ Downloaded Roboto-Regular.ttf"
 
 # Download Roboto Bold
-curl -o Roboto-Bold.ttf "https://fonts.gstatic.com/s/roboto/v32/KFOlCnqEu92Fr1MmWUlf.ttf"
+curl -o Roboto-Bold.ttf "https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjammT.ttf"
 echo "✓ Downloaded Roboto-Bold.ttf"
 
 echo "Done! Fonts are ready for use."

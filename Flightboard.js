@@ -1,10 +1,6 @@
 // flightBoard.js — Generates a VNA-styled flight board image using canvas
-const { createCanvas, GlobalFonts } = require('canvas');
-const path = require('path');
-
-// Register custom fonts for Railway deployment (no system fonts available)
-GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), 'Roboto');
-GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), 'Roboto-Bold');
+const { createCanvas } = require('canvas');
+const { FONT_FAMILY_REGULAR, FONT_FAMILY_BOLD } = require('./canvasFonts');
 
 // VNA Brand Colors
 const VNA_NAVY   = '#006785';
@@ -19,6 +15,8 @@ const GREEN      = '#22C55E';
 const AMBER      = '#F59E0B';
 const RED        = '#EF4444';
 const BLUE       = '#3B82F6';
+
+const font = (size, family) => `${size}px ${family}`;
 
 const STATUS_COLORS = {
   scheduled: { bg: '#EFF6FF', text: BLUE,  label: 'SCHEDULED'  },
@@ -89,16 +87,16 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
 
   // Logo / Airline name
   ctx.fillStyle = WHITE;
-  ctx.font      = '32px Roboto-Bold';
+  ctx.font      = font(32, FONT_FAMILY_BOLD);
   ctx.fillText('Vietnam Airlines', PAD + 8, 44);
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font      = '15px Roboto';
+  ctx.font      = font(15, FONT_FAMILY_REGULAR);
   ctx.fillText(`${guildName}  ·  LIVE FLIGHT BOARD`, PAD + 8, 68);
 
   // DEPARTURES label (top right)
   ctx.fillStyle = WHITE;
-  ctx.font      = '28px Roboto-Bold';
+  ctx.font      = font(28, FONT_FAMILY_BOLD);
   const depLabel = 'DEPARTURES';
   const depW     = ctx.measureText(depLabel).width;
   ctx.fillText(depLabel, WIDTH - PAD - depW, 44);
@@ -107,7 +105,7 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
   const now     = new Date(Date.now() + 7 * 60 * 60 * 1000);
   const dateStr = now.toUTCString().replace(' GMT', ' ICT').slice(0, 25);
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font      = '13px Roboto';
+  ctx.font      = font(13, FONT_FAMILY_REGULAR);
   const dtW     = ctx.measureText(dateStr).width;
   ctx.fillText(dateStr, WIDTH - PAD - dtW, 68);
 
@@ -131,7 +129,7 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
   ];
 
   ctx.fillStyle = VNA_NAVY;
-  ctx.font      = '13px Roboto-Bold';
+  ctx.font      = font(13, FONT_FAMILY_BOLD);
   for (const col of COLS) {
     ctx.fillText(col.label, col.x, colY + 28);
   }
@@ -149,7 +147,7 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
 
   if (visibleFlights.length === 0) {
     ctx.fillStyle = TEXT_LIGHT;
-    ctx.font      = '18px Roboto';
+    ctx.font      = font(18, FONT_FAMILY_REGULAR);
     ctx.fillText('No flights scheduled in the next 24 hours.', PAD, rowsStartY + 38);
   }
 
@@ -172,36 +170,36 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
 
     // Flight number
     ctx.fillStyle = VNA_NAVY;
-    ctx.font      = '20px Roboto-Bold';
+    ctx.font      = font(20, FONT_FAMILY_BOLD);
     ctx.fillText(f.flight_number || 'N/A', COLS[0].x, midY);
 
     // Route
     const origin = truncate(f.origin || 'N/A', 14);
     const dest   = truncate(f.destination || 'N/A', 14);
     ctx.fillStyle = VNA_NAVY;
-    ctx.font      = '15px Roboto-Bold';
+    ctx.font      = font(15, FONT_FAMILY_BOLD);
     ctx.fillText(`${origin} → ${dest}`, COLS[1].x, midY);
 
     // Aircraft
     ctx.fillStyle = TEXT_MID;
-    ctx.font      = '14px Roboto';
+    ctx.font      = font(14, FONT_FAMILY_REGULAR);
     ctx.fillText(truncate(f.aircraft || 'N/A', 22), COLS[2].x, midY);
 
     // Departure time
     ctx.fillStyle = TEXT_DARK;
-    ctx.font      = '14px Roboto-Bold';
+    ctx.font      = font(14, FONT_FAMILY_BOLD);
     ctx.fillText(formatTime(f.timestamp), COLS[3].x, midY);
 
     // Gate
     ctx.fillStyle = TEXT_MID;
-    ctx.font      = '14px Roboto';
+    ctx.font      = font(14, FONT_FAMILY_REGULAR);
     ctx.fillText(f.gate || 'TBA', COLS[4].x, midY);
 
     // Crew booked / capacity
     const booked   = bookingsMap[f.id] || 0;
     const capacity = f.passenger_capacity || '?';
     ctx.fillStyle  = booked > 0 ? VNA_NAVY : TEXT_LIGHT;
-    ctx.font       = '14px Roboto-Bold';
+    ctx.font       = font(14, FONT_FAMILY_BOLD);
     ctx.fillText(`${booked}/${capacity}`, COLS[5].x, midY);
 
     // Status badge
@@ -220,7 +218,7 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
     ctx.stroke();
 
     ctx.fillStyle = status.text;
-    ctx.font      = '12px Roboto-Bold';
+    ctx.font      = font(12, FONT_FAMILY_BOLD);
     const labelW  = ctx.measureText(status.label).width;
     ctx.fillText(status.label, badgeX + (badgeW - labelW) / 2, badgeY + 18);
 
@@ -246,7 +244,7 @@ async function generateFlightBoard(flights, bookingsMap, guildName) {
   ctx.stroke();
 
   ctx.fillStyle = TEXT_LIGHT;
-  ctx.font      = '12px Roboto';
+  ctx.font      = font(12, FONT_FAMILY_REGULAR);
   ctx.fillText(`AUTO-REFRESHES DAILY  ·  ${guildName}  ·  Flight Operations`, PAD, footerY + 22);
 
   const countLabel = `${visibleFlights.length} active flight${visibleFlights.length !== 1 ? 's' : ''}`;

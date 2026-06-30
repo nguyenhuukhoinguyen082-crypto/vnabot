@@ -1,19 +1,7 @@
 // flightCard.js — Generates a single-flight detail card (FlightRadar24 style)
 // Place this file in your ROOT folder, same level as index.js
 const { createCanvas } = require('canvas');
-const path = require('path');
-
-// Try to register fonts, but don't crash if it fails
-let GlobalFonts;
-try {
-  GlobalFonts = require('canvas').GlobalFonts;
-  if (GlobalFonts) {
-    GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), 'Roboto');
-    GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), 'Roboto-Bold');
-  }
-} catch (err) {
-  console.warn('Font registration in flightCard.js skipped (fonts may not be available):', err.message);
-}
+const { FONT_FAMILY_REGULAR, FONT_FAMILY_BOLD } = require('./canvasFonts');
 
 const VNA_NAVY   = '#006785';
 const VNA_GOLD   = '#DC9D1F';
@@ -80,21 +68,23 @@ async function generateFlightCard(flight, host, flightType) {
   const prefix = flightNumber.slice(0, 2).toUpperCase();
   const airlineInfo = AIRLINE_BADGE[prefix] || AIRLINE_BADGE.VN;
 
+  const font = (size, family) => `${size}px ${family}`;
+
   ctx.fillStyle = WHITE;
-  ctx.font = '30px Roboto-Bold';
+  ctx.font = font(30, FONT_FAMILY_BOLD);
   ctx.fillText(airlineInfo.name, 36, 42);
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = '14px Roboto';
+  ctx.font = font(14, FONT_FAMILY_REGULAR);
   ctx.fillText(`${flightType || 'Flight'}  ·  FLIGHT DETAILS`, 36, 64);
 
   ctx.fillStyle = WHITE;
-  ctx.font = '34px Roboto-Bold';
+  ctx.font = font(34, FONT_FAMILY_BOLD);
   const fnW = ctx.measureText(flightNumber).width;
   ctx.fillText(flightNumber, WIDTH - 36 - fnW, 50);
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = '13px Roboto';
+  ctx.font = font(13, FONT_FAMILY_REGULAR);
   const dateStr = formatDateICT(flight.timestamp);
   const dateW = ctx.measureText(dateStr).width;
   ctx.fillText(dateStr, WIDTH - 36 - dateW, 70);
@@ -105,11 +95,11 @@ async function generateFlightCard(flight, host, flightType) {
   const routeY = HEADER_H + 6 + 70;
 
   ctx.fillStyle = TEXT_DARK;
-  ctx.font = '46px Roboto-Bold';
+  ctx.font = font(46, FONT_FAMILY_BOLD);
   ctx.fillText((flight.origin || 'N/A').slice(0, 4).toUpperCase(), 60, routeY);
 
   ctx.fillStyle = TEXT_LIGHT;
-  ctx.font = '14px Roboto';
+  ctx.font = font(14, FONT_FAMILY_REGULAR);
   ctx.fillText('FROM', 64, routeY + 22);
   ctx.fillText((flight.origin_name || flight.origin || 'N/A').slice(0, 28), 60, routeY + 42);
 
@@ -129,13 +119,13 @@ async function generateFlightCard(flight, host, flightType) {
   ctx.fill();
 
   ctx.fillStyle = TEXT_DARK;
-  ctx.font = '46px Roboto-Bold';
+  ctx.font = font(46, FONT_FAMILY_BOLD);
   const destCode = (flight.destination || 'N/A').slice(0, 4).toUpperCase();
   const destCodeW = ctx.measureText(destCode).width;
   ctx.fillText(destCode, WIDTH - 60 - destCodeW, routeY);
 
   ctx.fillStyle = TEXT_LIGHT;
-  ctx.font = '14px Roboto';
+  ctx.font = font(14, FONT_FAMILY_REGULAR);
   const toLabelW = ctx.measureText('TO').width;
   ctx.fillText('TO', WIDTH - 64 - toLabelW, routeY + 22);
   const destName = (flight.destination_name || flight.destination || 'N/A').slice(0, 28);
@@ -168,22 +158,22 @@ async function generateFlightCard(flight, host, flightType) {
       ctx.stroke();
     }
     ctx.fillStyle = TEXT_LIGHT;
-    ctx.font = '12px Roboto-Bold';
+    ctx.font = font(12, FONT_FAMILY_BOLD);
     ctx.fillText(cells[i].label, cx, gridY + 36);
 
     ctx.fillStyle = VNA_NAVY;
-    ctx.font = '20px Roboto-Bold';
+    ctx.font = font(20, FONT_FAMILY_BOLD);
     const val = cells[i].value.length > 16 ? cells[i].value.slice(0, 15) + '…' : cells[i].value;
     ctx.fillText(val, cx, gridY + 70);
   }
 
   const footerY = gridY + gridH + 30;
   ctx.fillStyle = TEXT_LIGHT;
-  ctx.font = '13px Roboto';
+  ctx.font = font(13, FONT_FAMILY_REGULAR);
   ctx.fillText('Vietnam Airlines Group | PTFS  ·  Sải Cánh Vươn Cao', 36, footerY);
 
   ctx.fillStyle = GREEN;
-  ctx.font = '13px Roboto-Bold';
+  ctx.font = font(13, FONT_FAMILY_BOLD);
   const statusLabel = (flight.status || 'SCHEDULED').toUpperCase();
   const statusW = ctx.measureText(statusLabel).width;
   ctx.fillText(statusLabel, WIDTH - 36 - statusW, footerY);

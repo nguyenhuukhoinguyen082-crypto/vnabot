@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "postinstall": "node fonts/download-fonts.js"
   },
   "dependencies": {
     "@discordjs/rest": "^2.3.0",

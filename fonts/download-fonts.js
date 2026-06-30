@@ -11,11 +11,11 @@ const path = require('path');
 
 const FONTS = [
   {
-    url: 'https://fonts.gstatic.com/s/roboto/v32/KFOmCnqEu92Fr1Mu4mxP.ttf',
+    url: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbWmT.ttf',
     filename: 'Roboto-Regular.ttf',
   },
   {
-    url: 'https://fonts.gstatic.com/s/roboto/v32/KFOlCnqEu92Fr1MmWUlf.ttf',
+    url: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjammT.ttf',
     filename: 'Roboto-Bold.ttf',
   },
 ];

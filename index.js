@@ -233,39 +233,45 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (id.startsWith('pf_book_')) {
-        const flightNumber = id.replace('pf_book_', '');
-        return interaction.deferReply({ ephemeral: true }).then(async () => {
-          const { getFlight } = require('./firebase');
-          const flight = await getFlight(flightNumber);
-
-          if (!flight) {
-            return interaction.editReply({ content: `❌ Flight **${flightNumber}** no longer exists.` });
-          }
-          if (!flight.bookings_open) {
-            return interaction.editReply({ content: `❌ Bookings for **${flightNumber}** are closed.` });
-          }
-
-          try {
-            const dmEmbed = new EmbedBuilder()
-              .setColor(0x006785)
-              .setTitle(`🎫 Book Flight ${flightNumber}`)
-              .setDescription([
-                `Run this command anywhere in the server to book your seat:`,
-                ``,
-                `\`/book flight flightnumber:${flightNumber} class:economy\``,
-                ``,
-                `> 💺 Change \`class:economy\` to \`class:business\` for Business Class`,
-                `> 🗺️ You'll see an interactive seat map to pick your seat!`,
-              ].join('\n'))
-              .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' });
-
-            await interaction.user.send({ embeds: [dmEmbed] });
-            return interaction.editReply({ content: `✅ Check your DMs for booking instructions!` });
-          } catch (err) {
-            return interaction.editReply({ content: `❌ I couldn't DM you — please enable DMs from server members, then run \`/book flight flightnumber:${flightNumber}\` manually.` });
-          }
-        }).catch(() => {});
+      const flightNumber = id.replace('pf_book_', '');
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error('pf_book_ deferReply failed:', err.message);
+        return;
       }
+
+      const { getFlight } = require('./firebase');
+      const flight = await getFlight(flightNumber);
+
+      if (!flight) {
+        return interaction.editReply({ content: `❌ Flight **${flightNumber}** no longer exists.` });
+      }
+      if (!flight.bookings_open) {
+        return interaction.editReply({ content: `❌ Bookings for **${flightNumber}** are closed.` });
+      }
+
+      const dmEmbed = new EmbedBuilder()
+        .setColor(0x006785)
+        .setTitle(`🎫 Book Flight ${flightNumber}`)
+        .setDescription([
+          `Run this command anywhere in the server to book your seat:`,
+          ``,
+          `\`/book flight flightnumber:${flightNumber} class:economy\``,
+          ``,
+          `> 💺 Change \`class:economy\` to \`class:business\` for Business Class`,
+          `> 🗺️ You'll see an interactive seat map to pick your seat!`,
+        ].join('\n'))
+        .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' });
+
+      try {
+        await interaction.user.send({ embeds: [dmEmbed] });
+        return interaction.editReply({ content: `✅ Check your DMs for booking instructions!` });
+      } catch (err) {
+        console.error(`Booking DM failed for ${interaction.user.id}:`, err.message);
+        return interaction.editReply({ content: `❌ I couldn't DM you — please enable DMs from server members, then run \`/book flight flightnumber:${flightNumber}\` manually.` });
+      }
+    }
 
     if (id === 'browse_deals') {
       return interaction.reply({
