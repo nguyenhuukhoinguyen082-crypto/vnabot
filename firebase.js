@@ -434,6 +434,16 @@ async function updateBirthdayConfig(updates) {
   await set(ref(db, 'birthday_config'), { ...current, ...updates });
 }
 
+async function getConfig() {
+  const snap = await get(ref(db, 'config'));
+  if (!snap.exists()) return { flightboard_channel_id: null };
+  return snap.val();
+}
+async function updateConfig(updates) {
+  const current = await getConfig();
+  await set(ref(db, 'config'), { ...current, ...updates });
+}
+
 // ─── WELCOME SYSTEM ───────────────────────────────────────────────────────────
 async function getWelcomeConfig() {
   const snap = await get(ref(db, 'welcome_config'));
