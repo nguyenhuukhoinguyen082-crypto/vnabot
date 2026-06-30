@@ -100,7 +100,43 @@ client.on('interactionCreate', async (interaction) => {
     if (id === 'cf_aircraft')       return; // createflight.js
     if (id === 'deal_prev' || id === 'deal_next' || id.startsWith('deal_book_post')) return; // deals.js
 
-    // ── postflight how-to-book button ─────────────────────────────────────────
+    // ── Postflight "Book This Flight" button ──────────────────────────────────
+    if (id.startsWith('pf_book_')) {
+      const flightNumber = id.replace('pf_book_', '');
+      await interaction.deferReply({ ephemeral: true });
+
+      const { getFlight } = require('./firebase');
+      const flight = await getFlight(flightNumber);
+
+      if (!flight) {
+        return interaction.editReply({ content: `❌ Flight **${flightNumber}** no longer exists.` });
+      }
+      if (!flight.bookings_open) {
+        return interaction.editReply({ content: `❌ Bookings for **${flightNumber}** are closed.` });
+      }
+
+      try {
+        const { EmbedBuilder } = require('discord.js');
+        const dmEmbed = new EmbedBuilder()
+          .setColor(0x006785)
+          .setTitle(`🎫 Book Flight ${flightNumber}`)
+          .setDescription([
+            `Run this command anywhere in the server to book your seat:`,
+            ``,
+            `\`/book flight flightnumber:${flightNumber} class:economy\``,
+            ``,
+            `> 💺 Change \`class:economy\` to \`class:business\` for Business Class`,
+            `> 🗺️ You'll see an interactive seat map to pick your seat!`,
+          ].join('\n'))
+          .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' });
+
+        await interaction.user.send({ embeds: [dmEmbed] });
+        return interaction.editReply({ content: `✅ Check your DMs for booking instructions!` });
+      } catch (err) {
+        return interaction.editReply({ content: `❌ I couldn't DM you — please enable DMs from server members, then run \`/book flight flightnumber:${flightNumber}\` manually.` });
+      }
+    }
+
     // ── Application Accept/Reject buttons ─────────────────────────────────────
     if (id.startsWith('appaccept_') || id.startsWith('appreject_')) {
       const staffRoleId = process.env.STAFF_ROLE_ID;
