@@ -1,12 +1,13 @@
 const {
   SlashCommandBuilder, EmbedBuilder,
   ActionRowBuilder, StringSelectMenuBuilder,
-  ButtonBuilder, ButtonStyle, ComponentType,
+  ButtonBuilder, ButtonStyle, ComponentType, AttachmentBuilder,
 } = require('discord.js');
 const {
   getFlight, getBookings, getUserBooking, createBooking, cancelBooking,
 } = require('../firebase');
-const { detectConfig, buildSeatMap, getPageCount, getRowOptions } = require('./seatmap');
+const { detectConfig, getPageCount, getRowOptions } = require('./seatmap');
+const { generateSeatMapImage } = require('../seatMapImage');
 const { awardMiles, deductMiles, updateCareerProgress } = require('./ffhelper');
 
 const LOGO = 'https://i.postimg.cc/SRMftcKS/vna.jpg';
@@ -25,11 +26,10 @@ function buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages) 
     .setDescription([
       `**Route:** ${flight.origin || 'N/A'} ✈️ ${flight.destination || 'N/A'}`,
       `**Aircraft:** ${config.name}`,
-      `**Class:** ${seatClass === 'business' ? '💼 Business Class' : '💺 Economy Class'}`,
+      `**Class:** ${seatClass === 'business' ? '💼 Business Class' : seatClass === 'premium_economy' ? '🟧 Premium Economy' : '💺 Economy Class'}`,
       `**Rows shown:** ${page * 10 + 1}–${Math.min((page + 1) * 10, config.totalRows)} of ${config.totalRows} (Page ${page + 1}/${totalPages})`,
-      '',
-      buildSeatMap(config, takenSeats, null, page),
     ].join('\n'))
+    .setImage('attachment://seatmap.png')
     .addFields(
       { name: '🟩 Available', value: `${available}`, inline: true },
       { name: '🟥 Taken', value: `${taken}`, inline: true },
@@ -38,6 +38,11 @@ function buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages) 
     )
     .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
     .setTimestamp();
+}
+
+async function buildSeatMapAttachment(config, takenSeats, selectedSeat, page, flightNumber) {
+  const imageBuffer = await generateSeatMapImage(config, takenSeats, selectedSeat, page, 10, flightNumber);
+  return new AttachmentBuilder(imageBuffer, { name: 'seatmap.png' });
 }
 
 // ─── Component builders ───────────────────────────────────────────────────────
@@ -73,7 +78,13 @@ function buildNavButtons(page, totalPages) {
 
 function buildColButtons(config, row, takenSeats) {
   const takenSet = new Set(takenSeats.map(s => s.toUpperCase()));
-  const cols = config.cols;
+  const isBiz = config.businessRows?.includes(row);
+  const isPrem = (config.premiumRows || []).includes(row);
+  const cols = isBiz
+    ? (config.businessCols || config.cols)
+    : isPrem
+      ? (config.premiumCols || config.cols)
+      : (config.economyCols || config.cols);
   const actionRows = [];
 
   // Up to 4 cols per ActionRow
@@ -111,7 +122,8 @@ module.exports = {
           opt.setName('class').setDescription('Travel class').setRequired(true)
             .addChoices(
               { name: '💺 Economy', value: 'economy' },
-              { name: '💼 Business', value: 'business' },
+              { name: '� Premium Economy', value: 'premium_economy' },
+              { name: '�💼 Business', value: 'business' },
             )))
     .addSubcommand(sub =>
       sub.setName('cancel')
@@ -225,6 +237,7 @@ module.exports = {
       const msg = await interaction.editReply({
         embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
         components: initialComponents,
+        files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
       });
 
       // ── Collector — ONLY listens to this user, on this message ──────────────
@@ -257,6 +270,7 @@ module.exports = {
             return await i.update({
               embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
               components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
             });
           }
 
@@ -267,6 +281,7 @@ module.exports = {
             return await i.update({
               embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
               components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
             });
           }
 
@@ -278,17 +293,17 @@ module.exports = {
             if (seatClass === 'business' && !isBizRow) {
               return await i.update({
                 embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)
-                  .setDescription(`⚠️ Row **${selectedRow}** is Economy. Pick a Business row (${config.businessRows.join(', ')}).\n\n` +
-                    buildSeatMap(config, takenSeats, null, page))],
+                  .setDescription(`⚠️ Row **${selectedRow}** is Economy. Pick a Business row (${config.businessRows.join(', ')}).`)],
                 components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+                files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
               });
             }
             if (seatClass === 'economy' && isBizRow) {
               return await i.update({
                 embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)
-                  .setDescription(`⚠️ Row **${selectedRow}** is Business Class. Pick an Economy row.\n\n` +
-                    buildSeatMap(config, takenSeats, null, page))],
+                  .setDescription(`⚠️ Row **${selectedRow}** is Business Class. Pick an Economy row.`)],
                 components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+                files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
               });
             }
 
@@ -301,7 +316,6 @@ module.exports = {
 
             const comps = [buildRowSelect(config, page, takenSeats), ...colBtns, backRow].filter(Boolean).slice(0, 5);
 
-            const mapWithHighlight = buildSeatMap(config, takenSeats, null, page);
             return await i.update({
               embeds: [new EmbedBuilder()
                 .setColor(seatClass === 'business' ? 0x1E90FF : seatClass === 'premium_economy' ? 0xFF8C00 : 0x006785)
@@ -311,13 +325,13 @@ module.exports = {
                   `**Flight:** ${flight.flight_number} | **Route:** ${flight.origin} ✈️ ${flight.destination}`,
                   `**Row selected:** ${selectedRow}${config.businessRows.includes(selectedRow) ? ' 💼 Business' : ' 💺 Economy'}`,
                   '',
-                  mapWithHighlight,
-                  '',
                   '> ② Now click your seat column below:',
                 ].join('\n'))
+                .setImage('attachment://seatmap.png')
                 .setFooter({ text: 'Green = available • Red = taken • Vietnam Airlines Group | PTFS' })
                 .setTimestamp()],
               components: comps,
+              files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
             });
           }
 
@@ -327,6 +341,7 @@ module.exports = {
             return await i.update({
               embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
               components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+              files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
             });
           }
 
@@ -352,11 +367,10 @@ module.exports = {
               .setDescription([
                 `You selected **Seat ${seatId}** on flight **${flightNumber}**.`,
                 '',
-                buildSeatMap(config, takenSeats, seatId, page),
-                '',
                 '> 🟨 = Your selected seat',
                 '> Click **Confirm** to finalize your booking.',
               ].join('\n'))
+              .setImage('attachment://seatmap.png')
               .addFields(
                 { name: '✈️ Flight', value: flightNumber, inline: true },
                 { name: '🗺️ Route', value: `${flight.origin} ✈️ ${flight.destination}`, inline: true },
@@ -378,7 +392,11 @@ module.exports = {
             i.client._pendingSeat = i.client._pendingSeat || {};
             i.client._pendingSeat[interaction.user.id] = seatId;
 
-            return await i.update({ embeds: [confirmEmbed], components: [confirmRow] });
+            return await i.update({
+              embeds: [confirmEmbed],
+              components: [confirmRow],
+              files: [await buildSeatMapAttachment(config, takenSeats, seatId, page, flight.flight_number)],
+            });
           }
 
           // ── Confirm booking ──────────────────────────────────────────────
@@ -535,6 +553,7 @@ async function startBookingFlow({ user, channel, guild, flightNumber, seatClass 
     content: `🎫 **Booking Flight ${flightNumber}**\nPick your seat below — class: **${seatClass}**`,
     embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
     components,
+    files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
   });
 
   // Reuse the same collector logic as the slash command

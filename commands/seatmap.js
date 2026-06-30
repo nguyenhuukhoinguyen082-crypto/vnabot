@@ -9,8 +9,10 @@ const CONFIGS = {
     totalRows: 35,
     cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     businessRows: [1, 2, 3, 4, 5, 6],
-    exitRows: [11, 20],
+    premiumRows: [7, 8, 9, 10, 11],
+    exitRows: [12, 20],
     businessCols: ['A', 'B', 'D', 'E', 'G', 'H'],
+    premiumCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     economyCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
   },
   '787-10': {
@@ -18,8 +20,10 @@ const CONFIGS = {
     totalRows: 40,
     cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     businessRows: [1, 2, 3, 4, 5, 6],
+    premiumRows: [7, 8, 9, 10, 11],
     exitRows: [12, 24],
     businessCols: ['A', 'B', 'D', 'E', 'G', 'H'],
+    premiumCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     economyCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
   },
   'a350-900': {
@@ -27,8 +31,10 @@ const CONFIGS = {
     totalRows: 38,
     cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     businessRows: [1, 2, 3, 4, 5, 6, 7, 8],
+    premiumRows: [9, 10, 11, 12],
     exitRows: [14, 25],
     businessCols: ['A', 'B', 'D', 'E', 'G', 'H'],
+    premiumCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
     economyCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
   },
   'a321neo': {
@@ -116,10 +122,16 @@ function getRowOptions(config, page, takenSeats, rowsPerPage = 10) {
 
   return rows.map(row => {
     const isBiz = config.businessRows.includes(row);
+    const isPrem = (config.premiumRows || []).includes(row);
     const isExit = config.exitRows.includes(row);
-    const rowCols = isBiz ? (config.businessCols || config.cols) : (config.economyCols || config.cols);
+    const rowCols = isBiz
+      ? (config.businessCols || config.cols)
+      : isPrem
+        ? (config.premiumCols || config.cols)
+        : (config.economyCols || config.cols);
     const availableInRow = rowCols.filter(col => !takenSet.has(`${row}${col}`.toUpperCase()));
-    const label = `Row ${row}${isBiz ? ' — Business' : ' — Economy'}${isExit ? ' (Exit)' : ''} — ${availableInRow.length} free`;
+    const classLabel = isBiz ? ' — Business' : isPrem ? ' — Premium Economy' : ' — Economy';
+    const label = `Row ${row}${classLabel}${isExit ? ' (Exit)' : ''} — ${availableInRow.length} free`;
 
     return {
       label: label.slice(0, 100),
