@@ -1,6 +1,6 @@
 // flightCard.js — Generates a single-flight detail card (FlightRadar24 style)
 // Place this file in your ROOT folder, same level as index.js
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts } = require('canvas');
 const path = require('path');
 
 try {
