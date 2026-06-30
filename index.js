@@ -36,8 +36,22 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     console.log('📡 Registering slash commands...');
+
+    let applicationId = process.env.CLIENT_ID;
+    if (!applicationId) {
+      try {
+        const appInfo = await rest.get(Routes.oauth2CurrentApplication());
+        applicationId = appInfo?.id;
+        console.log('ℹ️ Fetched application id from Discord:', applicationId);
+      } catch (e) {
+        console.warn('⚠️ Could not fetch application id from Discord:', e?.message || e);
+      }
+    }
+
+    if (!applicationId) throw new Error('Application ID not set and could not be fetched');
+
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationGuildCommands(applicationId, process.env.GUILD_ID),
       { body: commandsData }
     );
     console.log('✅ Slash commands registered!');
