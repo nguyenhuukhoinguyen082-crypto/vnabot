@@ -4,8 +4,8 @@ let generateFlightBoard;
 try {
   generateFlightBoard = require('../Flightboard').generateFlightBoard;
 } catch (e) {
-  // Fallback for deployments that may have different filename casing
-  generateFlightBoard = require('../flightBoard')?.generateFlightBoard;
+  console.error('Failed to load Flightboard:', e.message);
+  generateFlightBoard = () => Buffer.alloc(0); // Fallback
 }
 require('dotenv').config();
 

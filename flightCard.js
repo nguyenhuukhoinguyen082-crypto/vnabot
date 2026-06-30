@@ -1,13 +1,18 @@
 // flightCard.js — Generates a single-flight detail card (FlightRadar24 style)
 // Place this file in your ROOT folder, same level as index.js
-const { createCanvas, GlobalFonts } = require('canvas');
+const { createCanvas } = require('canvas');
 const path = require('path');
 
+// Try to register fonts, but don't crash if it fails
+let GlobalFonts;
 try {
-  GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), 'Roboto');
-  GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), 'Roboto-Bold');
+  GlobalFonts = require('canvas').GlobalFonts;
+  if (GlobalFonts) {
+    GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), 'Roboto');
+    GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), 'Roboto-Bold');
+  }
 } catch (err) {
-  console.error('Font registration in flightCard.js failed:', err.message);
+  console.warn('Font registration in flightCard.js skipped (fonts may not be available):', err.message);
 }
 
 const VNA_NAVY   = '#006785';
