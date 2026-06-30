@@ -1,25 +1,24 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { getFlight, getEvents } = require('../firebase');
+const { generateFlightCard } = require('../flightCard');
 require('dotenv').config();
 
-// Sub-airline emoji mapping by callsign prefix
+const VNA_NAVY = 0x006785;
+
 const AIRLINE_TAIL_EMOJI = {
   VN: '<:hvntail:1519977376044286072>',
-  BL: '<:pacifictail:1519977456725917818>',
-  OV: '<:vascotail:1519977945609932860>',
+  BL: '<:BLTail:1514151520936136734>',
+  OV: '<:VAS:1514151545745182841>',
 };
-const AIRLINE_GOLD_EMOJI = '<:goldvna:1514151658014118018>';
-const VNA_NAVY = 0x006785;
-const VNA_GOLD = 0xDC9D1F;
 const CREW_PING = '<@&1503023201402224780>';
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('postflight')
-    .setDescription('[STAFF] Post a flight announcement in the VNA format')
+    .setDescription('[STAFF] Post a flight announcement with flight card image')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)
     .addStringOption(opt => opt.setName('flightnumber').setDescription('Flight number (e.g. VN100, BL200, OV301)').setRequired(true))
-    .addStringOption(opt => opt.setName('flighttype').setDescription('Flight type (e.g. Group Flight, Training Flight, Charter)').setRequired(true))
+    .addStringOption(opt => opt.setName('flighttype').setDescription('Flight type (e.g. Normal Flight, Group Flight, Training Flight)').setRequired(true))
     .addStringOption(opt => opt.setName('host').setDescription('Host / pilot name').setRequired(true))
     .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post in (leave empty for current)').setRequired(false)),
 
@@ -31,23 +30,20 @@ module.exports = {
     }
 
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
-    const flightType = interaction.options.getString('flighttype');
-    const host = interaction.options.getString('host');
-    const channelOpt = interaction.options.getChannel('channel');
+    const flightType   = interaction.options.getString('flighttype');
+    const host         = interaction.options.getString('host');
+    const channelOpt   = interaction.options.getChannel('channel');
 
     const flight = await getFlight(flightNumber);
     if (!flight) {
       return interaction.editReply({ content: `❌ Flight **${flightNumber}** not found. Create it first with \`/createflight\`.` });
     }
 
-    // Detect sub-airline from callsign prefix
     let prefix = 'VN';
     if (flightNumber.startsWith('BL')) prefix = 'BL';
     else if (flightNumber.startsWith('OV')) prefix = 'OV';
-
     const tailEmoji = AIRLINE_TAIL_EMOJI[prefix] || AIRLINE_TAIL_EMOJI['VN'];
 
-    // Find Discord Event link
     let eventLink = null;
     try {
       const allEvents = await getEvents();
@@ -75,28 +71,49 @@ module.exports = {
       ? `<t:${Math.floor(flight.timestamp / 1000)}:F>`
       : flight.time || 'TBA';
 
-    const postContent = [
-      `${CREW_PING}`,
-      ``,
-      `## ${tailEmoji} | ${flightNumber} | ${flightType}`,
-      `> Xin Chào! A new flight has been scheduled from ${flight.origin_name || flight.origin} to ${flight.destination_name || flight.destination}, flying onboard our ${flight.aircraft || 'aircraft'}.`,
-      ``,
-      `> Host: ${host}`,
-      `> Flight Time: ${timeDisplay}`,
-      `> Origin Airport: ${flight.origin_name || flight.origin}`,
-      `> Destination Airport: ${flight.destination_name || flight.destination}`,
-      ``,
-      `> To book your flight, please use the command \`/book flight ${flightNumber}\``,
-      `> We hope to see you there!`,
-      eventLink ? `> [Event Link](${eventLink})` : `> [Event Link](https://discord.com/channels/${interaction.guild.id})`,
-      `-# ${AIRLINE_GOLD_EMOJI} Vietnam Airlines | Reach Further`,
-    ].join('\n');
+    let attachment = null;
+    try {
+      const imageBuffer = await generateFlightCard(flight, host, flightType);
+      attachment = new AttachmentBuilder(imageBuffer, { name: 'flightcard.png' });
+    } catch (err) {
+      console.error('Flight card generation failed:', err.message);
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(VNA_NAVY)
+      .setTitle(`${tailEmoji} | ${flightNumber} | ${flightType}`)
+      .setDescription([
+        `Xin Chào! A new flight has been scheduled from ${flight.origin_name || flight.origin} to ${flight.destination_name || flight.destination}, flying onboard our ${flight.aircraft || 'aircraft'}.`,
+        '',
+        `> **Host:** ${host}`,
+        `> **Flight Time:** ${timeDisplay}`,
+        `> **Origin Airport:** ${flight.origin_name || flight.origin}`,
+        `> **Destination Airport:** ${flight.destination_name || flight.destination}`,
+        '',
+        `> To book your flight, please use the command \`/book flight ${flightNumber}\` or click the button below!`,
+        `> We hope to see you there!`,
+        eventLink ? `> [Event Link](${eventLink})` : `> *Event link not found — check Discord Events*`,
+      ].join('\n'))
+      .setFooter({ text: 'Vietnam Airlines | Reach Further' })
+      .setTimestamp();
+
+    if (attachment) embed.setImage('attachment://flightcard.png');
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`pf_book_${flightNumber}`)
+        .setLabel('🎫 Book This Flight')
+        .setStyle(ButtonStyle.Success),
+    );
 
     const targetChannel = channelOpt
       ? await interaction.client.channels.fetch(channelOpt.id).catch(() => interaction.channel)
       : interaction.channel;
 
-    await targetChannel.send({ content: postContent });
-    return interaction.editReply({ content: `✅ Flight **${flightNumber}** posted in <#${targetChannel.id}>!` });
+    const sendPayload = { content: `${CREW_PING}`, embeds: [embed], components: [row] };
+    if (attachment) sendPayload.files = [attachment];
+
+    await targetChannel.send(sendPayload);
+    return interaction.editReply({ content: `✅ Flight **${flightNumber}** posted in <#${targetChannel.id}> with flight card!` });
   },
 };

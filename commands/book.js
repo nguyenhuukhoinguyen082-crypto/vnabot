@@ -504,3 +504,43 @@ module.exports = {
     }
   },
 };
+
+// ── Exported helper so other files (like postflight button) can trigger booking ──
+async function startBookingFlow({ user, channel, guild, flightNumber, seatClass = 'economy' }) {
+  const flight = await getFlight(flightNumber);
+  if (!flight) {
+    return channel.send({ content: `❌ Flight **${flightNumber}** not found.` });
+  }
+  if (!flight.bookings_open) {
+    return channel.send({ content: `❌ Bookings for **${flightNumber}** are closed.` });
+  }
+
+  const existing = await getUserBooking(user.id, flight.id);
+  if (existing) {
+    return channel.send({ content: `⚠️ You already have booking **${existing.booking_code}** on **${flightNumber}** (Seat **${existing.seat}**).` });
+  }
+
+  const allBookings = await getBookings(flight.id);
+  const takenSeats = allBookings.map(b => b.seat?.toUpperCase()).filter(Boolean);
+  const config = detectConfig(flight.aircraft);
+  const totalPages = getPageCount(config);
+  let page = 0;
+
+  const components = [
+    buildRowSelect(config, page, takenSeats),
+    buildNavButtons(page, totalPages),
+  ].filter(Boolean);
+
+  const msg = await channel.send({
+    content: `🎫 **Booking Flight ${flightNumber}**\nPick your seat below — class: **${seatClass}**`,
+    embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
+    components,
+  });
+
+  // Reuse the same collector logic as the slash command
+  // (paste your existing collector.on('collect', ...) block here, unchanged,
+  // just using `msg` instead of the slash command's interaction.editReply result,
+  // and `user` instead of `interaction.user`)
+}
+
+module.exports.startBookingFlow = startBookingFlow;
