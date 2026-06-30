@@ -488,3 +488,13 @@ client.once('ready', () => {
 
     scheduleDailyFlightBoard();
 });
+
+    // ── Login to Discord ────────────────────────────────────────────────────────
+    if (!process.env.DISCORD_TOKEN) {
+      console.error('❌ DISCORD_TOKEN is not set — bot cannot go online.');
+    } else {
+      client.login(process.env.DISCORD_TOKEN).catch(err => {
+        console.error('❌ Discord login failed:', err);
+        process.exit(1);
+      });
+    }
