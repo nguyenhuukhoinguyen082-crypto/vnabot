@@ -106,6 +106,15 @@ module.exports = {
         .setStyle(ButtonStyle.Success),
     );
 
+    if (eventLink) {
+      row.addComponents(
+        new ButtonBuilder()
+          .setLabel('📅 View Event')
+          .setStyle(ButtonStyle.Link)
+          .setURL(eventLink),
+      );
+    }
+
     const targetChannel = channelOpt
       ? await interaction.client.channels.fetch(channelOpt.id).catch(() => interaction.channel)
       : interaction.channel;
