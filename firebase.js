@@ -539,6 +539,7 @@ module.exports = {
   getTrainings, getTraining, createTraining, deleteTraining, updateTraining,
   getCertifications, issueCertification, revokeCertification, getCertConfig, updateCertConfig,
   getBirthdays, getBirthday, setBirthday, removeBirthday, getBirthdayConfig, updateBirthdayConfig,
+  getConfig, updateConfig,
   getWelcomeConfig, updateWelcomeConfig,
   getApplicationTypes, getApplicationType, getApplicationTypeByTitle,
   addApplicationType, removeApplicationType, updateApplicationType,
