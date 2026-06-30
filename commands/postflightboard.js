@@ -1,6 +1,12 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
 const { getFlights, getBookings, getConfig } = require('../firebase');
-const { generateFlightBoard } = require('../flightBoard');
+let generateFlightBoard;
+try {
+  generateFlightBoard = require('../Flightboard').generateFlightBoard;
+} catch (e) {
+  // Fallback for deployments that may have different filename casing
+  generateFlightBoard = require('../flightBoard')?.generateFlightBoard;
+}
 require('dotenv').config();
 
 const VNA_NAVY = 0x006785;
