@@ -1,11 +1,11 @@
 // flightCard.js — Full redesign: aircraft photo background + white overlay
 // Place this file in your ROOT folder, same level as index.js
-const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, registerFont } = require('canvas');
 const path = require('path');
 
 try {
-  GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), 'Roboto');
-  GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), 'Roboto-Bold');
+  registerFont(path.join(__dirname, 'fonts', 'Roboto-Regular.ttf'), { family: 'Roboto' });
+  registerFont(path.join(__dirname, 'fonts', 'Roboto-Bold.ttf'), { family: 'Roboto-Bold' });
 } catch (err) {
   console.error('Font registration in flightCard.js failed:', err.message);
 }
