@@ -46,14 +46,22 @@ function roundRect(ctx, x, y, w, h, r) {
 /**
  * Determine the seat color based on its class and status.
  */
-function getSeatColor(row, col, config, takenSet, selectedSeat) {
+function getRowClass(row, config) {
+  const businessRows = Array.isArray(config.businessRows) ? config.businessRows : [];
+  const premiumRows  = Array.isArray(config.premiumRows)  ? config.premiumRows  : [];
+  if (businessRows.includes(row)) return 'business';
+  if (premiumRows.includes(row)) return 'premium';
+  return 'economy';
+}
+
+function getSeatColor(row, col, config, takenSet, selectedSeat, rowClass) {
   const seatId = `${row}${col}`.toUpperCase();
 
   if (seatId === (selectedSeat || '').toUpperCase()) return SELECTED_COLOR;
   if (takenSet.has(seatId)) return TAKEN_COLOR;
 
-  if (config.businessRows?.includes(row)) return BUSINESS_COLOR;
-  if (config.premiumRows?.includes(row)) return PREMIUM_COLOR;
+  if (rowClass === 'business') return BUSINESS_COLOR;
+  if (rowClass === 'premium') return PREMIUM_COLOR;
   return ECONOMY_COLOR;
 }
 
