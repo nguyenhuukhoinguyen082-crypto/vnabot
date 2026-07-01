@@ -123,6 +123,12 @@ module.exports = {
     if (attachment) sendPayload.files = [attachment];
 
     await targetChannel.send(sendPayload);
+
+    // Remember which channel this flight was announced in, so /updateflight
+    // can auto-post check-in / delay / cancel notices to the same place
+    const { updateFlight } = require('../firebase');
+    await updateFlight(flight.id, { announcement_channel_id: targetChannel.id }).catch(() => {});
+
     return interaction.editReply({ content: `✅ Flight **${flightNumber}** posted in <#${targetChannel.id}> with flight card!` });
   },
 };

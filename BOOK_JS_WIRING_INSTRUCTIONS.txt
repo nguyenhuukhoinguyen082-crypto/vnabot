@@ -1,0 +1,130 @@
+═══════════════════════════════════════════════════════════════════════════════
+WIRE THE SEAT MAP IMAGE INTO book.js
+═══════════════════════════════════════════════════════════════════════════════
+
+STEP 1 — Add the import at the top of book.js
+
+Find:
+  const { detectConfig, buildSeatMap, getPageCount, getRowOptions } = require('./seatmap');
+
+Add this line right after it:
+  const { generateSeatMapImage } = require('../seatMapImage');
+  const { AttachmentBuilder } = require('discord.js');
+
+(If AttachmentBuilder is already imported at the top from discord.js,
+just add it to that existing destructure instead of a new line.)
+
+───────────────────────────────────────────────────────────────────────────────
+
+STEP 2 — Update buildMapEmbed() to NOT include the emoji grid in the
+description, and instead set the image as an attachment reference.
+
+Find this section in buildMapEmbed():
+
+  .setDescription([
+      `**Route:** ${flight.origin || 'N/A'} ✈️ ${flight.destination || 'N/A'}`,
+      `**Aircraft:** ${config.name}`,
+      `**Class:** ${seatClass === 'business' ? '💼 Business Class' : '💺 Economy Class'}`,
+      `**Rows shown:** ${page * 10 + 1}–${Math.min((page + 1) * 10, config.totalRows)} of ${config.totalRows} (Page ${page + 1}/${totalPages})`,
+      '',
+      buildSeatMap(config, takenSeats, null, page),
+    ].join('\n'))
+
+Replace with:
+
+  .setDescription([
+      `**Route:** ${flight.origin || 'N/A'} ✈️ ${flight.destination || 'N/A'}`,
+      `**Aircraft:** ${config.name}`,
+      `**Class:** ${seatClass === 'business' ? '💼 Business Class' : seatClass === 'premium_economy' ? '🟧 Premium Economy' : '💺 Economy Class'}`,
+      `**Rows shown:** ${page * 10 + 1}–${Math.min((page + 1) * 10, config.totalRows)} of ${config.totalRows} (Page ${page + 1}/${totalPages})`,
+    ].join('\n'))
+    .setImage('attachment://seatmap.png')
+
+───────────────────────────────────────────────────────────────────────────────
+
+STEP 3 — Create a helper function to build the image attachment.
+Add this function near the top of book.js, after buildMapEmbed():
+
+  async function buildSeatMapAttachment(config, takenSeats, selectedSeat, page, flightNumber) {
+    const imageBuffer = await generateSeatMapImage(config, takenSeats, selectedSeat, page, 10, flightNumber);
+    return new AttachmentBuilder(imageBuffer, { name: 'seatmap.png' });
+  }
+
+───────────────────────────────────────────────────────────────────────────────
+
+STEP 4 — Update every place that sends the embed to ALSO attach the image.
+
+There are multiple places in book.js where `interaction.editReply` or
+`i.update` sends `embeds: [buildMapEmbed(...)]`. Each of these needs a
+`files: [await buildSeatMapAttachment(...)]` added alongside it.
+
+Example — find the INITIAL seat map render:
+
+  const msg = await interaction.editReply({
+    embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
+    components: initialComponents,
+  });
+
+Replace with:
+
+  const msg = await interaction.editReply({
+    embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
+    components: initialComponents,
+    files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
+  });
+
+───────────────────────────────────────────────────────────────────────────────
+
+Do the SAME pattern for the page prev/next handlers:
+
+Find (appears twice, for bk_prev and bk_next):
+
+  return await i.update({
+    embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
+    components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+  });
+
+Replace with:
+
+  return await i.update({
+    embeds: [buildMapEmbed(flight, config, takenSeats, seatClass, page, totalPages)],
+    components: [buildRowSelect(config, page, takenSeats), buildNavButtons(page, totalPages)].filter(Boolean),
+    files: [await buildSeatMapAttachment(config, takenSeats, null, page, flight.flight_number)],
+  });
+
+───────────────────────────────────────────────────────────────────────────────
+
+STEP 5 — Update the SEAT CONFIRMATION step (after picking a seat column)
+to show the image with that seat highlighted in gold/selected color.
+
+Find the section where it builds the confirmation embed (search for
+"Confirm Your Booking" or the bk_seat_ handler), and find:
+
+  return await i.update({ embeds: [confirmEmbed], components: [confirmRow] });
+
+Replace with:
+
+  return await i.update({
+    embeds: [confirmEmbed],
+    components: [confirmRow],
+    files: [await buildSeatMapAttachment(config, takenSeats, seatId, page, flight.flight_number)],
+  });
+
+(Make sure `confirmEmbed` no longer has the old `buildSeatMap(...)` text
+description embedded in it — remove that line from its .setDescription()
+array and add `.setImage('attachment://seatmap.png')` to it instead,
+same as Step 2.)
+
+═══════════════════════════════════════════════════════════════════════════════
+SUMMARY OF WHAT CHANGED
+═══════════════════════════════════════════════════════════════════════════════
+
+- The emoji-grid text seat map (🟩🟥🟨) is now a generated PNG image
+- Business = Blue, Premium Economy = Orange, Economy = Green
+- Taken seats = Grey, Selected seat = Gold
+- Row/seat SELECTION still works exactly the same way (dropdown + buttons)
+  — only the visual preview changed from emoji-text to an image
+- Image regenerates and re-attaches on every interaction (page change,
+  row select, seat pick) so it always reflects current state
+
+═══════════════════════════════════════════════════════════════════════════════

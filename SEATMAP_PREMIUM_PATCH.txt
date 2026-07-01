@@ -1,0 +1,72 @@
+═══════════════════════════════════════════════════════════════════════════════
+ADD PREMIUM ECONOMY SUPPORT TO seatmap.js
+═══════════════════════════════════════════════════════════════════════════════
+
+Find each aircraft config in your CONFIGS object (e.g. '787-9', '787-10',
+'a350-900', 'a330-300') and add a `premiumRows` and `premiumCols` field.
+
+Example — find this in seatmap.js:
+
+  '787-9': {
+    name: 'Boeing 787-9 Dreamliner',
+    totalRows: 35,
+    cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
+    businessRows: [1, 2, 3, 4, 5, 6],
+    exitRows: [11, 20],
+    businessCols: ['A', 'B', 'D', 'E', 'G', 'H'],
+    economyCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
+  },
+
+Replace with (adds Premium Economy rows 7-11):
+
+  '787-9': {
+    name: 'Boeing 787-9 Dreamliner',
+    totalRows: 35,
+    cols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
+    businessRows: [1, 2, 3, 4, 5, 6],
+    premiumRows: [7, 8, 9, 10, 11],
+    exitRows: [12, 20],
+    businessCols: ['A', 'B', 'D', 'E', 'G', 'H'],
+    premiumCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
+    economyCols: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'],
+  },
+
+───────────────────────────────────────────────────────────────────────────────
+
+Do the same pattern for '787-10' and 'a350-900' (add a few premium rows
+right after the business rows end, before economy begins).
+
+For 'a321neo' and 'a330-300' — these likely DON'T need Premium Economy
+(narrowbody / no real-world premium cabin), so leave them with
+premiumRows: [] or simply omit the field entirely (the code treats
+missing premiumRows as "no premium economy on this aircraft").
+
+═══════════════════════════════════════════════════════════════════════════════
+ALSO UPDATE getRowOptions() function in seatmap.js
+═══════════════════════════════════════════════════════════════════════════════
+
+Find this section inside getRowOptions():
+
+  return rows.map(row => {
+    const isBiz = config.businessRows.includes(row);
+    const isExit = config.exitRows.includes(row);
+    const rowCols = isBiz ? (config.businessCols || config.cols) : (config.economyCols || config.cols);
+    const availableInRow = rowCols.filter(col => !takenSet.has(`${row}${col}`.toUpperCase()));
+    const label = `Row ${row}${isBiz ? ' — Business' : ' — Economy'}${isExit ? ' (Exit)' : ''} — ${availableInRow.length} free`;
+
+Replace with:
+
+  return rows.map(row => {
+    const isBiz = config.businessRows.includes(row);
+    const isPrem = (config.premiumRows || []).includes(row);
+    const isExit = config.exitRows.includes(row);
+    const rowCols = isBiz
+      ? (config.businessCols || config.cols)
+      : isPrem
+        ? (config.premiumCols || config.cols)
+        : (config.economyCols || config.cols);
+    const availableInRow = rowCols.filter(col => !takenSet.has(`${row}${col}`.toUpperCase()));
+    const classLabel = isBiz ? ' — Business' : isPrem ? ' — Premium Economy' : ' — Economy';
+    const label = `Row ${row}${classLabel}${isExit ? ' (Exit)' : ''} — ${availableInRow.length} free`;
+
+═══════════════════════════════════════════════════════════════════════════════

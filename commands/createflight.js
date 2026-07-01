@@ -28,12 +28,19 @@ module.exports = {
     .setDescription('[STAFF] Create a new flight using an aircraft from your fleet')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)
     .addStringOption(opt => opt.setName('flightnumber').setDescription('Flight number including prefix (e.g. VN100, BL200, OV301)').setRequired(true))
-    .addStringOption(opt => opt.setName('origin').setDescription('Origin airport (e.g. Noi Bai International Airport)').setRequired(true))
-    .addStringOption(opt => opt.setName('destination').setDescription('Destination airport (e.g. Tan Son Nhat International Airport)').setRequired(true))
+    .addStringOption(opt => opt.setName('origin').setDescription('Origin airport full name (e.g. Noi Bai International Airport)').setRequired(true))
+    .addStringOption(opt => opt.setName('destination').setDescription('Destination airport full name (e.g. Tan Son Nhat International Airport)').setRequired(true))
+    .addStringOption(opt => opt.setName('origin_iata').setDescription('Origin IATA code (e.g. HAN)').setRequired(true))
+    .addStringOption(opt => opt.setName('dest_iata').setDescription('Destination IATA code (e.g. SGN)').setRequired(true))
     .addStringOption(opt => opt.setName('date').setDescription('Date (dd/mm/yyyy)').setRequired(true))
     .addStringOption(opt => opt.setName('time').setDescription('Departure time ICT (HH:mm)').setRequired(true))
     .addStringOption(opt => opt.setName('gate').setDescription('Gate (e.g. A1)').setRequired(false))
-    .addStringOption(opt => opt.setName('flighttype').setDescription('Flight type (e.g. Group Flight, Training Flight)').setRequired(false)),
+    .addStringOption(opt => opt.setName('flighttype').setDescription('Flight type (e.g. Normal Flight, Group Flight, Training Flight)').setRequired(false))
+    .addStringOption(opt => opt.setName('origin_icao').setDescription('Real-world origin ICAO code (e.g. VVNB)').setRequired(false))
+    .addStringOption(opt => opt.setName('dest_icao').setDescription('Real-world destination ICAO code (e.g. VVTS)').setRequired(false))
+    .addStringOption(opt => opt.setName('ptfs_origin_icao').setDescription('PTFS in-game origin ICAO (e.g. VNKS)').setRequired(false))
+    .addStringOption(opt => opt.setName('ptfs_dest_icao').setDescription('PTFS in-game destination ICAO (e.g. VNSH)').setRequired(false))
+    .addStringOption(opt => opt.setName('ptfs_origin_airport').setDescription('PTFS in-game origin airport/spawn name (used for check-in instructions)').setRequired(false)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -45,15 +52,21 @@ module.exports = {
     const flightNumber = interaction.options.getString('flightnumber').toUpperCase();
     const origin = interaction.options.getString('origin');
     const destination = interaction.options.getString('destination');
+    const originIata = interaction.options.getString('origin_iata').toUpperCase();
+    const destIata = interaction.options.getString('dest_iata').toUpperCase();
     const date = interaction.options.getString('date');
     const time = interaction.options.getString('time');
     const gate = interaction.options.getString('gate') || 'TBA';
-    const flightType = interaction.options.getString('flighttype') || 'Group Flight';
+    const flightType = interaction.options.getString('flighttype') || 'Normal Flight';
+    const originIcao = interaction.options.getString('origin_icao') || null;
+    const destIcao = interaction.options.getString('dest_icao') || null;
+    const ptfsOriginIcao = interaction.options.getString('ptfs_origin_icao') || null;
+    const ptfsDestIcao = interaction.options.getString('ptfs_dest_icao') || null;
+    const ptfsOriginAirport = interaction.options.getString('ptfs_origin_airport') || null;
 
     const ts = ictToTimestamp(date, time);
     if (!ts) return interaction.editReply({ content: '❌ Invalid date/time. Use dd/mm/yyyy and HH:mm (ICT).' });
 
-    // Auto-detect sub-airline from callsign prefix
     let airlineKey = 'vna';
     if (flightNumber.startsWith('BL')) airlineKey = 'pacific';
     else if (flightNumber.startsWith('OV')) airlineKey = 'vasco';
@@ -63,7 +76,6 @@ module.exports = {
       return interaction.editReply({ content: '❌ No aircraft in the fleet yet. Use `/createplane` first.' });
     }
 
-    // Filter fleet to matching airline or show all active
     const activeFleet = fleet.filter(p => {
       const active = (p.service_status || p.status || '').toLowerCase() !== 'retired';
       if (airlineKey !== 'vna') {
@@ -99,13 +111,13 @@ module.exports = {
       .setThumbnail(LOGO)
       .addFields(
         { name: '✈️ Flight', value: flightNumber, inline: true },
-        { name: '🗺️ Route', value: `${origin} → ${destination}`, inline: true },
+        { name: '🗺️ Route', value: `${originIata} → ${destIata}`, inline: true },
         { name: '🕐 Time (ICT)', value: `${date} ${time} → <t:${Math.floor(ts / 1000)}:F>`, inline: false },
         { name: '🚪 Gate', value: gate, inline: true },
         { name: '🛫 Type', value: flightType, inline: true },
         { name: '🏢 Airline', value: `${airlineEmoji} ${airlineKey === 'vna' ? 'Vietnam Airlines' : airlineKey === 'pacific' ? 'Pacific Airlines' : 'VASCO'}`, inline: true },
       )
-      .setDescription('Select the aircraft for this flight. Aircraft with 🖼️ will use their image as the Discord Event banner.')
+      .setDescription('Select the aircraft for this flight. Aircraft with 🖼️ will use their image on the flight card.')
       .setFooter({ text: 'Vietnam Airlines Group | PTFS • Sải Cánh Vươn Cao' })
       .setTimestamp();
 
@@ -126,9 +138,16 @@ module.exports = {
         const flightId = await createFlight({
           flight_number: flightNumber,
           origin,
-          origin_name: origin,
           destination,
+          origin_name: origin,
           destination_name: destination,
+          origin_iata: originIata,
+          dest_iata: destIata,
+          origin_icao: originIcao,
+          dest_icao: destIcao,
+          ptfs_origin_icao: ptfsOriginIcao,
+          ptfs_dest_icao: ptfsDestIcao,
+          ptfs_origin_airport: ptfsOriginAirport,
           date,
           time: `${date} ${time}`,
           timestamp: ts,
@@ -146,28 +165,25 @@ module.exports = {
           airline_name: selectedPlane.airline_name || 'Vietnam Airlines',
         });
 
-        // Create Discord Scheduled Event with aircraft image as banner
         let discordEvent = null;
         try {
-  const eventPayload = {
-    name: `${flightType} | ${flightNumber} | ${origin} → ${destination}`,
-    scheduledStartTime: new Date(ts),
-    scheduledEndTime: new Date(ts + 60 * 60 * 1000),
-    privacyLevel: 2,
-    entityType: 3,
-    entityMetadata: { location: `Gate ${gate}` },
-    description: `Vietnam Airlines Group | PTFS\nFlight ${flightNumber}\n${origin} → ${destination}\nAircraft: ${selectedPlane.display_name || selectedPlane.aircraft_type}`,
-  };
+          const eventPayload = {
+            name: `${flightType} | ${flightNumber} | ${originIata} → ${destIata}`.slice(0, 100),
+            scheduledStartTime: new Date(Math.max(ts, Date.now() + 5 * 60 * 1000)),
+            scheduledEndTime: new Date(Math.max(ts, Date.now() + 5 * 60 * 1000) + 60 * 60 * 1000),
+            privacyLevel: 2,
+            entityType: 3,
+            entityMetadata: { location: `Gate ${gate}` },
+            description: `Vietnam Airlines Group | PTFS\nFlight ${flightNumber}\n${originIata} → ${destIata}\nAircraft: ${selectedPlane.display_name || selectedPlane.aircraft_type}`,
+          };
+          discordEvent = await interaction.guild.scheduledEvents.create(eventPayload);
+        } catch (err) {
+          console.error('Discord event creation failed:', err.message);
+        }
 
-  discordEvent = await interaction.guild.scheduledEvents.create(eventPayload);
-} catch (err) {
-  console.error('Discord event creation failed:', err.message, err);
-}
-
-        // Ping crew
         try {
           await interaction.channel.send({
-            content: `<@&${CREW_ROLE}> ✈️ Flight **${flightNumber}** (${origin} → ${destination}) has been created! Use \`/book flight\` to book your seat.`,
+            content: `<@&${CREW_ROLE}> ✈️ Flight **${flightNumber}** (${originIata} → ${destIata}) has been created! Use \`/book flight\` to book your seat.`,
           });
         } catch {}
 
@@ -179,13 +195,15 @@ module.exports = {
           .setThumbnail(LOGO)
           .addFields(
             { name: '✈️ Flight', value: flightNumber, inline: true },
-            { name: '🗺️ Route', value: `${origin} → ${destination}`, inline: true },
+            { name: '🗺️ Route', value: `${originIata} → ${destIata}`, inline: true },
             { name: '🕐 Time', value: `<t:${Math.floor(ts / 1000)}:F>`, inline: false },
             { name: '🛩️ Aircraft', value: `${selectedPlane.display_name || selectedPlane.aircraft_type} (VN-${selectedPlane.tail_registration || selectedPlane.registration})`, inline: true },
             { name: '💺 Capacity', value: `${selectedPlane.passenger_capacity || '?'} seats`, inline: true },
             { name: '💼 Business', value: selectedPlane.has_business ? '✅ Yes' : '❌ No', inline: true },
             { name: '🚪 Gate', value: gate, inline: true },
-            { name: '🖼️ Event Banner', value: selectedPlane.image_url ? '✅ Aircraft image used!' : '⚠️ No image — add one with `/editplane`', inline: true },
+            { name: '🔖 ICAO', value: `${originIcao || '—'} → ${destIcao || '—'}`, inline: true },
+            { name: '🗺️ PTFS ICAO', value: `${ptfsOriginIcao || '—'} → ${ptfsDestIcao || '—'}`, inline: true },
+            { name: '📍 PTFS Spawn Airport', value: ptfsOriginAirport || 'Not set', inline: false },
             { name: '📅 Discord Event', value: discordEvent ? `[View Event](${discordEvent.url})` : '⚠️ Failed (check Manage Events permission)', inline: false },
             { name: '📢 Next Step', value: `Use \`/postflight flightnumber:${flightNumber} flighttype:${flightType} host:YOUR NAME\` to announce!`, inline: false },
           )

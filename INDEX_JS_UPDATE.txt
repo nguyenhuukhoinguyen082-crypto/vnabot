@@ -1,0 +1,55 @@
+═══════════════════════════════════════════════════════════════════════════════
+REPLACE your existing pf_book_ block in index.js with this version
+═══════════════════════════════════════════════════════════════════════════════
+
+Find the entire block that starts with:
+  if (id.startsWith('pf_book_')) {
+...and ends with the matching closing brace. Replace the WHOLE block with:
+
+      if (id.startsWith('pf_book_')) {
+        const flightNumber = id.replace('pf_book_', '');
+
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (err) {
+          return;
+        }
+
+        const { sendSeatMapDM } = require('./bookFlow');
+
+        const sent = await sendSeatMapDM(interaction.user, interaction.guild, flightNumber, 'economy').catch(err => {
+          console.error('sendSeatMapDM failed:', err.message);
+          return false;
+        });
+
+        if (sent) {
+          await interaction.editReply({ content: `✅ Check your DMs! I've sent you the seat map for **${flightNumber}**.` }).catch(() => {});
+        } else {
+          await interaction.editReply({
+            content: [
+              `❌ I couldn't send you a DM.`,
+              ``,
+              `**To fix this:**`,
+              `> 1️⃣ Right-click the server icon → Privacy Settings → Enable "Direct Messages"`,
+              `> 2️⃣ Click the button again, OR run \`/book flight flightnumber:${flightNumber} class:economy\` manually.`,
+            ].join('\n'),
+          }).catch(() => {});
+        }
+      }
+
+═══════════════════════════════════════════════════════════════════════════════
+IMPORTANT — folder structure check
+═══════════════════════════════════════════════════════════════════════════════
+
+bookFlow.js (new file) must sit in your ROOT folder and requires these
+files to already exist at these exact paths relative to it:
+
+  ./firebase.js                  (root — already exists)
+  ./commands/seatmap.js          (already exists)
+  ./seatMapImage.js              (root — added in Part 4)
+  ./commands/ffhelper.js         (already exists)
+
+If your seatmap.js or ffhelper.js are NOT inside a commands/ folder,
+adjust the require() paths at the top of bookFlow.js accordingly.
+
+═══════════════════════════════════════════════════════════════════════════════
