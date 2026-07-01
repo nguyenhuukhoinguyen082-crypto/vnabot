@@ -142,14 +142,16 @@ async function generateSeatMapImage(config, takenSeats, selectedSeat, page, rows
     ctx.fillText(String(row), seatStartX - 12, y + SEAT_SIZE / 2 + 5);
     ctx.textAlign = 'left';
 
-    const isBiz = config.businessRows?.includes(row);
-    const isPrem = config.premiumRows?.includes(row);
-    const rowCols = isBiz ? (config.businessCols || cols) : isPrem ? (config.premiumCols || cols) : (config.economyCols || cols);
+    // Determine this row's class ONCE — applies to every seat in the row
+    const rowClass = getRowClass(row, config);
+    const rowCols = rowClass === 'business' ? (config.businessCols || cols)
+      : rowClass === 'premium' ? (config.premiumCols || cols)
+      : (config.economyCols || cols);
 
     let sx = seatStartX;
     for (const col of leftCols) {
       if (rowCols.includes(col)) {
-        const color = getSeatColor(row, col, config, takenSet, selectedSeat);
+        const color = getSeatColor(row, col, config, takenSet, selectedSeat, rowClass);
         ctx.fillStyle = color;
         roundRect(ctx, sx, y, SEAT_SIZE, SEAT_SIZE, 5);
         ctx.fill();
@@ -159,14 +161,13 @@ async function generateSeatMapImage(config, takenSeats, selectedSeat, page, rows
     sx += AISLE_GAP;
     for (const col of rightCols) {
       if (rowCols.includes(col)) {
-        const color = getSeatColor(row, col, config, takenSet, selectedSeat);
+        const color = getSeatColor(row, col, config, takenSet, selectedSeat, rowClass);
         ctx.fillStyle = color;
         roundRect(ctx, sx, y, SEAT_SIZE, SEAT_SIZE, 5);
         ctx.fill();
       }
       sx += SEAT_SIZE + SEAT_GAP;
     }
-
     // Exit row marker
     if (config.exitRows?.includes(row)) {
       ctx.fillStyle = TEXT_LIGHT;
