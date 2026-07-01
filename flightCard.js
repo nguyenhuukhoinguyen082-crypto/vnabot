@@ -1,4 +1,4 @@
-// flightCard.js — Generates a single-flight detail card (FlightRadar24 style)
+// flightCard.js — Generates a single-flight detail card (FlightRadar24 style) 
 // Place this file in your ROOT folder, same level as index.js
 const { createCanvas } = require('canvas');
 const { FONT_FAMILY_REGULAR, FONT_FAMILY_BOLD } = require('./canvasFonts');
