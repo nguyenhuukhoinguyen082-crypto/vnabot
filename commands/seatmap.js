@@ -59,7 +59,23 @@ const CONFIGS = {
 
 const DEFAULT_CONFIG = CONFIGS['a321neo'];
 
-function detectConfig(aircraftName) {
+function detectConfig(aircraftName, customSeatLayout = null) {
+  // ── Priority 1: custom seat_layout from the website (if present) ───────────
+  if (customSeatLayout && customSeatLayout.totalRows && customSeatLayout.cols?.length) {
+    return {
+      name: aircraftName || 'Custom Aircraft',
+      totalRows: customSeatLayout.totalRows,
+      cols: customSeatLayout.cols,
+      businessRows: customSeatLayout.businessRows || [],
+      premiumRows: customSeatLayout.premiumRows || [],
+      exitRows: customSeatLayout.exitRows || [],
+      businessCols: customSeatLayout.businessCols || customSeatLayout.cols,
+      premiumCols: customSeatLayout.premiumCols || customSeatLayout.cols,
+      economyCols: customSeatLayout.economyCols || customSeatLayout.cols,
+    };
+  }
+
+  // ── Priority 2: fall back to hardcoded templates ────────────────────────────
   if (!aircraftName) return DEFAULT_CONFIG;
   const name = aircraftName.toLowerCase().replace(/\s+/g, '');
   if (name.includes('787-10') || name.includes('78710')) return CONFIGS['787-10'];
