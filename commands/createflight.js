@@ -157,6 +157,7 @@ module.exports = {
           aircraft_id: selectedPlane.id,
           aircraft_type: selectedPlane.aircraft_type,
           aircraft_image: selectedPlane.image_url || null,
+          seat_layout: selectedPlane.seat_layout || null,
           tail_registration: `VN-${selectedPlane.tail_registration || selectedPlane.registration}`,
           has_business: selectedPlane.has_business || false,
           seat_config: selectedPlane.seat_config || 'N/A',
